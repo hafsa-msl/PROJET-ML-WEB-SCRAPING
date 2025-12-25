@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 import joblib
+from datetime import date
 
 # ---------------- CONFIG ----------------
 st.set_page_config(
@@ -9,10 +10,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
- 
-
-
 
 # ---------------- PATHS ----------------
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -27,14 +24,12 @@ COVER_STOPS = FINAL_DIR / "coverage_top_stops.csv"
 APP_CSS = """
 <style>
 :root{
-  --c1:#BAD2E0; /* très clair */
-  --c2:#82AFF2; /* clair */
-  --c3:#3078CD; /* principal */
-  --c4:#25456B; /* profond */
-  --c5:#113356; /* nuit */
+  --c1:#BAD2E0;
+  --c2:#82AFF2;
+  --c3:#3078CD;
+  --c4:#25456B;
+  --c5:#113356;
 }
-
-/* Fond */
 .stApp{
   background:
     radial-gradient(1100px 600px at 70% 20%, rgba(130,175,242,0.22), transparent 60%),
@@ -42,16 +37,12 @@ APP_CSS = """
     linear-gradient(180deg, var(--c5) 0%, #0b1424 100%);
   color: rgba(255,255,255,0.92);
 }
-
-/* Largeur + centrage global */
 .block-container{
   max-width: 1180px;
   margin: 0 auto;
   padding-top: 1.8rem;
   padding-bottom: 2rem;
 }
-
-/* Sidebar */
 section[data-testid="stSidebar"]{
   background: linear-gradient(180deg, rgba(17,51,86,0.98) 0%, rgba(37,69,107,0.98) 100%);
   border-right: 1px solid rgba(186,210,224,0.12);
@@ -59,55 +50,24 @@ section[data-testid="stSidebar"]{
 section[data-testid="stSidebar"] *{
   color: rgba(255,255,255,0.92) !important;
 }
-
-/* Cache le chrome Streamlit (Deploy/toolbar, menu, footer, header) */
 [data-testid="stToolbar"]{visibility:hidden !important; height:0px !important;}
 header{visibility:hidden !important;}
 #MainMenu{visibility:hidden !important;}
 footer{visibility:hidden !important;}
 
-/* HERO centré */
-.hero-wrap{
-  text-align:center;
-  margin-top: 0.4rem;
-  margin-bottom: 1.2rem;
-}
-.hero-title{
-  font-size: 52px;
-  font-weight: 900;
-  color: var(--c2);
-  letter-spacing: -0.8px;
-  margin: 0;
-}
-.hero-sub{
-  font-size: 16px;
-  color: rgba(186,210,224,0.90);
-  margin-top: 10px;
-  margin-bottom: 8px;
-}
-.hero-tagline{
-  font-size: 15px;
-  color: rgba(186,210,224,0.85);
-  margin: 0;
-}
+.hero-wrap{ text-align:center; margin-top: 0.4rem; margin-bottom: 1.2rem; }
+.hero-title{ font-size: 52px; font-weight: 900; color: var(--c2); letter-spacing: -0.8px; margin: 0; }
+.hero-sub{ font-size: 16px; color: rgba(186,210,224,0.90); margin-top: 10px; margin-bottom: 8px; }
+.hero-tagline{ font-size: 15px; color: rgba(186,210,224,0.85); margin: 0; }
 
-/* Chips */
-.chips{
-  text-align:center;
-  margin-top: 14px;
-}
+.chips{ text-align:center; margin-top: 14px; }
 .chip{
-  display:inline-block;
-  padding:6px 10px;
-  border-radius:999px;
+  display:inline-block; padding:6px 10px; border-radius:999px;
   border:1px solid rgba(186,210,224,0.18);
   background: rgba(186,210,224,0.06);
-  color: rgba(186,210,224,0.95);
-  font-size: 12px;
-  margin: 6px 6px 0 0;
+  color: rgba(186,210,224,0.95); font-size: 12px; margin: 6px 6px 0 0;
 }
 
-/* Cards */
 .card{
   background: rgba(186,210,224,0.06);
   border: 1px solid rgba(130,175,242,0.28);
@@ -116,20 +76,9 @@ footer{visibility:hidden !important;}
   padding: 26px 26px 20px 26px;
   min-height: 240px;
 }
-.card h3{
-  margin:0 0 12px 0;
-  font-size: 24px;
-  font-weight: 900;
-  color: rgba(255,255,255,0.95);
-}
-.card p{
-  margin:0 0 18px 0;
-  color: rgba(186,210,224,0.92);
-  line-height:1.55;
-  font-size: 14.5px;
-}
+.card h3{ margin:0 0 12px 0; font-size: 24px; font-weight: 900; color: rgba(255,255,255,0.95); }
+.card p{ margin:0 0 18px 0; color: rgba(186,210,224,0.92); line-height:1.55; font-size: 14.5px; }
 
-/* Boutons Streamlit */
 div.stButton > button{
   width: 100%;
   background: var(--c3);
@@ -143,8 +92,6 @@ div.stButton > button:hover{
   background: #2a6bb5;
   color: white;
 }
-
-/* Sidebar nav style */
 .nav-btn button{
   width:100%;
   background: rgba(48,120,205,0.95) !important;
@@ -158,16 +105,64 @@ div.stButton > button:hover{
   color: #0b1424 !important;
 }
 
-
-[data-testid="stToolbar"]{visibility:hidden !important; height:0px !important;}
-header{visibility:hidden !important;}
-#MainMenu{visibility:hidden !important;}
+/* gros affichage résultat */
+.big-result{
+  font-size: 34px;
+  font-weight: 950;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
 </style>
 """
-
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
-# ---------------- ML HELPERS ----------------
+# ---------------- HELPERS ----------------
+def format_delay_minutes(delay: float) -> str:
+    seconds = int(round(abs(delay) * 60))
+
+    # +/- 30 sec => à l'heure
+    if -0.5 <= delay <= 0.5:
+        return "🟢 À l’heure"
+
+    if delay < -0.5:
+        if seconds < 60:
+            return f"🟢 En avance de {seconds} secondes"
+        return f"🟢 En avance de {seconds//60} min {seconds%60} s"
+
+    return f"⏰ En retard de {delay:.2f} minutes"
+
+def format_delay_stat(delay_min: float) -> str:
+    """
+    Format lisible pour des stats (moyenne/médiane) :
+    - proche de 0 => "0 s"
+    - < 1 minute => "XX s"
+    - sinon => "X min YY s"
+    Garde aussi le signe (+ retard / - avance).
+    """
+    if pd.isna(delay_min):
+        return "—"
+
+    sec = int(round(delay_min * 60))  # garde le signe
+    if abs(sec) <= 1:
+        return "0 s"
+
+    sign = "-" if sec < 0 else ""
+    sec_abs = abs(sec)
+
+    if sec_abs < 60:
+        return f"{sign}{sec_abs} s"
+
+    return f"{sign}{sec_abs//60} min {sec_abs%60} s"
+
+
+def risk_label(pred_delay_min: float) -> str:
+    if pred_delay_min < 2:
+        return "🟢 Fluide ( < 2 min )"
+    elif pred_delay_min < 5:
+        return "🟡 Modéré ( 2–5 min )"
+    else:
+        return "🔴 Élevé ( > 5 min )"
+
 @st.cache_resource
 def load_model(model_path: Path):
     bundle = joblib.load(model_path)
@@ -189,14 +184,6 @@ def load_dropdowns(cover_route_path: Path, cover_stops_path: Path):
             stops_list = stops[["stop_id", "stop_name", "label"]].to_dict("records")
 
     return routes_list, stops_list
-
-def risk_label(pred_delay_min: float) -> str:
-    if pred_delay_min < 2:
-        return "🟢 Fluide ( < 2 min )"
-    elif pred_delay_min < 5:
-        return "🟡 Modéré ( 2–5 min )"
-    else:
-        return "🔴 Élevé ( > 5 min )"
 
 def build_features_input(feat_cols, route_short_name, hour, day_of_week, stop_freq, stop_lat, stop_lon, route_type):
     if 0 <= hour <= 5:
@@ -250,7 +237,6 @@ def go(p):
 with st.sidebar:
     st.title("Navigation")
 
-
     st.markdown('<div class="nav-btn">', unsafe_allow_html=True)
     if st.button("Accueil 🏠", use_container_width=True): go("Accueil")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -299,7 +285,6 @@ if page == "Accueil":
     </div>
     """, unsafe_allow_html=True)
 
-    # Deux blocs côte à côte (Streamlit columns)
     col1, col2 = st.columns(2, gap="large")
 
     with col1:
@@ -370,13 +355,13 @@ elif page == "Prédiction":
         with c3: st.metric("Cible", "delay_minutes (min)")
 
         st.markdown("""
-**Objectif :** prédire le **retard en minutes** à partir d’un contexte (ligne, arrêt, heure, jour, etc.).  
+**Objectif :** prédire le **retard en minutes** à partir d’un contexte (ligne, arrêt, heure, jour, etc.).
 
 **Pourquoi ce modèle ?**
 - Les retards sont **non-linéaires** (heures de pointe, différences fortes entre lignes)
 - Les modèles type **Gradient Boosting / Random Forest** gèrent bien ces effets
 
-**Bonnes pratiques (académique)**
+**Bonnes pratiques**
 - Split **temporel** train/test (pas de fuite de données)
 - Métrique principale : **MAE** (minutes = interprétable métier)
         """)
@@ -421,23 +406,6 @@ elif page == "Prédiction":
             n_show = st.slider("Nombre de lignes à afficher", 10, 500, 50)
             st.dataframe(df_res.head(n_show), use_container_width=True)
 
-            if y is not None:
-                st.write("### Distribution des erreurs absolues")
-                err = df_res["abs_error"].round(0).value_counts().sort_index().head(60)
-                st.bar_chart(err)
-
-                st.write("### Retard moyen : vrai vs prédit (par heure)")
-                if "hour" in df_test.columns:
-                    tmp = df_test.copy()
-                    tmp["y_true"] = y.values
-                    tmp["y_pred"] = preds
-                    by_hour = tmp.groupby("hour", as_index=False)[["y_true", "y_pred"]].mean().sort_values("hour")
-                    st.line_chart(by_hour.set_index("hour"))
-                else:
-                    st.info("Colonne 'hour' non disponible dans test.csv → pas de courbe par heure.")
-
-            st.caption("⚠️ Les performances dépendent fortement du périmètre de collecte (jours/horaires couverts).")
-
     with tab3:
         st.subheader("🧾 Prédire un trajet")
         st.caption("Renseigne une situation, on estime le retard (minutes) + un niveau de risque.")
@@ -472,18 +440,28 @@ elif page == "Prédiction":
                 stop_lon=float(stop_lon),
                 route_type=int(route_type),
             )
+
             pred = float(model.predict(X_input)[0])
+
             st.markdown("### ✅ Résultat")
-            st.metric("Retard estimé (minutes)", f"{pred:.2f}")
-            st.write("Niveau de risque :", risk_label(pred))
+            st.markdown(
+                f"<div class='big-result'>{format_delay_minutes(pred)}</div>",
+                unsafe_allow_html=True
+            )
+
+            delay_for_risk = max(0.0, pred)
+            st.write("Niveau de risque :", risk_label(delay_for_risk))
+
             with st.expander("Voir les features envoyées au modèle"):
                 st.dataframe(X_input, use_container_width=True)
+
             st.caption("⚠️ La fiabilité dépend des lignes/arrêts et des périodes réellement observées en collecte.")
 
 elif page == "Data Viz":
     st.markdown("## 📊 Data Visualization")
     st.caption("Exploration des retards reconstruits (GTFS-RT + GTFS statique) sur la période de collecte.")
 
+    # 1) Charger df AVANT les filtres ✅
     DATA_PROCESSED = PROJECT_ROOT / "data" / "processed" / "delays_calculated.csv"
     DATA_TRAIN = PROJECT_ROOT / "data" / "final" / "train.csv"
 
@@ -537,12 +515,7 @@ elif page == "Data Viz":
             st.stop()
 
     if "day_of_week" not in df.columns:
-        if "jour" in df.columns and not pd.api.types.is_numeric_dtype(df["jour"]):
-            mapping = {"lundi":0,"mardi":1,"mercredi":2,"jeudi":3,"vendredi":4,"samedi":5,"dimanche":6}
-            df["day_of_week"] = df["jour"].astype(str).str.lower().map(mapping).fillna(0).astype(int)
-        else:
-            df["day_of_week"] = 0
-
+        df["day_of_week"] = 0
     if "hour" not in df.columns:
         if "collecte_datetime" in df.columns:
             dt = pd.to_datetime(df["collecte_datetime"], errors="coerce")
@@ -550,94 +523,158 @@ elif page == "Data Viz":
         else:
             df["hour"] = 0
 
-    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
-    df["is_peak_hour"] = df["hour"].isin([7,8,9,17,18,19]).astype(int)
-
     df["delay_minutes"] = pd.to_numeric(df["delay_minutes"], errors="coerce")
     df = df.dropna(subset=["delay_minutes"])
     df = df[df["delay_minutes"].between(-10, 60)]
 
-    st.sidebar.markdown("### Filtres Data Viz")
-    routes = sorted(df["route_short_name"].astype(str).dropna().unique().tolist())
-    route_sel = st.sidebar.multiselect("Lignes", options=routes, default=routes[:3] if len(routes) >= 3 else routes)
+    # 2) Filtres EN HAUT ✅ + aucun filtre par défaut ✅
+    st.markdown("### Filtres")
+    fcol1, fcol2, fcol3, fcol4 = st.columns([2, 2, 2, 2])
 
-    top_stops = df["stop_name"].astype(str).value_counts().head(200).index.tolist()
-    stop_sel = st.sidebar.multiselect("Arrêts (Top 200)", options=top_stops, default=top_stops[:5] if len(top_stops) >= 5 else top_stops)
+    with fcol1:
+        route_sel = st.multiselect(
+            "Lignes",
+            options=sorted(df["route_short_name"].astype(str).dropna().unique().tolist()),
+            default=[]
+        )
 
-    hour_range = st.sidebar.slider("Heure", 0, 23, (6, 22))
-    dow_sel = st.sidebar.multiselect("Jours (0=Lun … 6=Dim)", options=list(range(7)), default=list(range(7)))
+    with fcol2:
+        top_stops = df["stop_name"].astype(str).value_counts().head(200).index.tolist()
+        stop_sel = st.multiselect(
+            "Arrêts (Top 200)",
+            options=top_stops,
+            default=[]
+        )
 
+    with fcol3:
+        hour_range = st.slider("Heure", 0, 23, value=(0, 23))
+
+    with fcol4:
+        dow_sel = st.multiselect("Jours (0=Lun … 6=Dim)", options=list(range(7)), default=[])
+
+    # 3) Application des filtres (si vide => pas de filtre) ✅
     dff = df.copy()
     if route_sel:
         dff = dff[dff["route_short_name"].astype(str).isin(route_sel)]
     if stop_sel:
         dff = dff[dff["stop_name"].astype(str).isin(stop_sel)]
-    dff = dff[dff["hour"].between(hour_range[0], hour_range[1])]
-    dff = dff[dff["day_of_week"].isin(dow_sel)]
+    if hour_range != (0, 23):
+        dff = dff[dff["hour"].between(hour_range[0], hour_range[1])]
+    if dow_sel:
+        dff = dff[dff["day_of_week"].isin(dow_sel)]
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📄 Données", "⏱️ Tendances", "🚌 Lignes", "🚏 Arrêts", "🧭 Couverture"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📄 Données", "⏱️ Tendances", "🚌 Lignes", "🚏 Arrêts", "🧭 Couverture des données"])
 
     with tab1:
         st.markdown("### 📄 Données filtrées")
-        colA, colB, colC, colD = st.columns(4)
+        colA, colB, colC = st.columns(3)
         with colA: st.metric("Observations", f"{len(dff):,}".replace(",", " "))
-        with colB: st.metric("Retard moyen", f"{dff['delay_minutes'].mean():.2f} min")
-        with colC: st.metric("Retard médian", f"{dff['delay_minutes'].median():.2f} min")
-        with colD:
-            pct5 = (dff["delay_minutes"] > 5).mean() * 100
-            st.metric("% > 5 min", f"{pct5:.1f}%")
-        cols_show = [c for c in ["route_short_name","stop_name","hour","day_of_week","is_weekend","is_peak_hour","delay_minutes"] if c in dff.columns]
-        st.dataframe(dff[cols_show].head(200), use_container_width=True)
+        mean_delay = float(dff["delay_minutes"].mean()) if len(dff) else 0.0
+        median_delay = float(dff["delay_minutes"].median()) if len(dff) else 0.0
+        with colB: st.metric("Retard moyen", format_delay_stat(mean_delay))
+        with colC: st.metric("Retard médian", format_delay_stat(median_delay))
+
+        st.dataframe(dff.head(300), use_container_width=True)
 
     with tab2:
         st.markdown("### ⏱️ Tendances temporelles")
         by_hour = dff.groupby("hour", as_index=False)["delay_minutes"].mean().sort_values("hour")
-        st.write("**Retard moyen par heure**")
         st.line_chart(by_hour.set_index("hour"))
-
-        st.caption(f"Distribution calculée sur {len(dff)} observations — jours sélectionnés : {dow_sel}")
-        by_dow = dff.groupby("day_of_week", as_index=False)["delay_minutes"].mean().sort_values("day_of_week")
-        st.write("**Retard moyen par jour (0=Lun … 6=Dim)**")
-        st.bar_chart(by_dow.set_index("day_of_week"))
-
-        st.write("**Distribution des retards**")
-        st.bar_chart(dff["delay_minutes"].round(0).value_counts().sort_index().head(70))
 
     with tab3:
         st.markdown("### 🚌 Analyse par ligne")
         by_route = (
             dff.groupby("route_short_name", as_index=False)
-            .agg(
-                n=("delay_minutes","size"),
-                mean_delay=("delay_minutes","mean"),
-                pct_gt5=("delay_minutes", lambda s: (s > 5).mean()*100)
-            ).sort_values("mean_delay", ascending=False)
+            .agg(n=("delay_minutes","size"), mean_delay=("delay_minutes","mean"))
+            .sort_values("mean_delay", ascending=False)
         )
-        st.dataframe(by_route.head(20), use_container_width=True)
-        st.bar_chart(by_route.head(15).set_index("route_short_name")["mean_delay"])
+        st.dataframe(by_route.head(25), use_container_width=True)
+
+        st.markdown("### 📊 Top lignes par retard moyen")
+
+        topN = st.slider("Choisir le nombre de lignes les plus en retard à afficher", 5, 50, 15, key="top_routes")
+        top_routes = by_route.head(topN).set_index("route_short_name")
+
+        st.bar_chart(top_routes["mean_delay"])
+
 
     with tab4:
         st.markdown("### 🚏 Analyse par arrêt")
         by_stop = (
             dff.groupby("stop_name", as_index=False)
-            .agg(
-                n=("delay_minutes","size"),
-                mean_delay=("delay_minutes","mean"),
-                pct_gt5=("delay_minutes", lambda s: (s > 5).mean()*100)
-            ).sort_values("mean_delay", ascending=False)
+            .agg(n=("delay_minutes","size"), mean_delay=("delay_minutes","mean"))
+            .sort_values("mean_delay", ascending=False)
         )
-        st.dataframe(by_stop.head(20), use_container_width=True)
-        st.bar_chart(by_stop.head(15).set_index("stop_name")["mean_delay"])
+        st.dataframe(by_stop.head(25), use_container_width=True)
+
+        st.markdown("### 🚏 Retard moyen observé aux arrêts")
+        st.caption(
+        "Ce graphique ne représente pas un retard de l’arrêt lui-même, "
+        "mais le retard moyen des véhicules lorsqu’ils passent par cet arrêt."
+        )
+
+        topN2 = st.slider(
+        "Choisir le nombre d’arrêts avec le plus fort retard moyen des véhicules à afficher",
+        5, 50, 15,
+        key="top_stops"
+         )
+        top_stops_df = by_stop.head(topN2).set_index("stop_name")
+
+        st.bar_chart(top_stops_df["mean_delay"])
 
     with tab5:
-        st.markdown("### 🧭 Couverture & représentativité")
+        st.markdown("### 🧭 Couverture des données")
+        st.caption(
+            "Cette section permet de comprendre **quand** les données ont été collectées "
+            "et d’évaluer leur **représentativité dans le temps**."
+        )
+
         if "collecte_datetime" in df.columns:
+            # Conversion datetime
             df["collecte_datetime"] = pd.to_datetime(df["collecte_datetime"], errors="coerce")
-            jours_collecte = df["collecte_datetime"].dt.date.value_counts().sort_index()
-            st.subheader("📅 Jours de collecte")
-            st.dataframe(jours_collecte.rename("Nombre d'observations"))
+
+            # Jour de collecte
+            df["collecte_date"] = df["collecte_datetime"].dt.date
+            jours_collecte = (
+                df["collecte_date"]
+                .value_counts()
+                .sort_index()
+            )
+
+            # KPI globaux
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📅 Nombre de jours collectés", jours_collecte.shape[0])
+            with col2:
+                st.metric("📊 Total d'observations", f"{jours_collecte.sum():,}".replace(",", " "))
+            with col3:
+                st.metric(
+                    "📈 Moyenne / jour",
+                    f"{jours_collecte.mean():.0f} obs"
+                )
+
+            st.markdown("#### 📊 Répartition des observations par jour")
+            st.bar_chart(jours_collecte)
+
+            with st.expander("📋 Voir le détail par jour"):
+                st.dataframe(
+                    jours_collecte.rename("Nombre d'observations"),
+                    use_container_width=True
+                )
+
+            st.caption(
+                "⚠️ Les analyses et prédictions reflètent uniquement les jours et périodes "
+                "présents dans la collecte. Une faible couverture temporelle peut influencer "
+                "la généralisation des résultats."
+            )
+
         else:
-            st.info("La colonne 'collecte_datetime' n'est pas disponible dans ce dataset.")
+            st.warning(
+                "La colonne **collecte_datetime** n’est pas disponible dans ce dataset. "
+                "La couverture temporelle ne peut pas être évaluée."
+            )
+
+
 
 elif page == "À propos":
     from datetime import date

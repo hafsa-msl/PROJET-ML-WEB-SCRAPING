@@ -1,32 +1,118 @@
-# 🚍 Prédiction des Retards - Réseau Fil Bleu Tours
+# 🚎 FilBleu Predictor — Prédiction des retards (Tours)
 
-Projet de Machine Learning appliqué aux transports en commun.
+**FilBleu Predictor** est un projet de **Machine Learning & Data Visualisation**
+appliqué aux transports en commun, basé sur les données **GTFS & GTFS-RT**
+du réseau **Fil Bleu (Tours)**.
 
-## 📋 Objectif
+L’objectif est double :
+- analyser les retards observés sur le réseau,
+- prédire un **retard en minutes** selon une situation donnée  
+  (ligne, arrêt, heure, jour).
 
-Prédire les retards sur le réseau Fil Bleu (Tours) pour aider les usagers à mieux planifier leurs trajets.
+---
 
-## 📊 Données
+## 🎯 Objectifs du projet
 
-- **Source** : API GTFS-RT Fil Bleu
-- **Méthode** : Web scraping temps réel
-- **Format** : Protocol Buffers → CSV
+- Collecter des données temps réel (**GTFS-RT**) via web scraping
+- Reconstruire les retards à partir des horaires théoriques (**GTFS statique**)
+- Explorer les retards (tendances temporelles, lignes, arrêts)
+- Entraîner un modèle de **régression**
+- Proposer une **application Streamlit** interactive
 
-## 🛠️ Technologies
+---
 
-- Python 3.8+
-- Pandas, NumPy
-- Scikit-learn, XGBoost
-- Streamlit (application web)
+## 📊 Données & collecte
 
-## 🚀 Installation
-```bash
-pip install -r requirements.txt
-```
+### Sources
+- **GTFS statique** : structure du réseau (lignes, arrêts, horaires)
+- **GTFS-RT** : données temps réel (Protocol Buffers)
 
-## 📁 Structure
-```
-MACHINE LEARNING/
+### Méthode
+- Web scraping ponctuel de l’API GTFS-RT Fil Bleu
+- Parsing des fichiers `.bin`
+- Reconstruction du retard `delay_minutes` par comparaison :
+  - horaire réel vs horaire théorique
+- Gestion du fuseau horaire **Europe/Paris**
+
+---
+
+## 🧠 Méthodologie de collecte (approche hybride)
+
+### Contraintes
+- Collecte continue 24/7 → infrastructure serveur nécessaire
+- Besoin d’un volume suffisant pour le Machine Learning
+
+### Approche retenue
+
+#### 1️⃣ Collecte temps réel (validation)
+- Collectes ponctuelles sur plusieurs jours
+- Observation des patterns réels de retard
+
+#### 2️⃣ Base GTFS statique
+- **1 469 821** horaires théoriques
+- **2 146 arrêts**, **44 lignes**
+- Couverture complète du réseau
+
+#### 3️⃣ Simulation calibrée (data augmentation)
+- Génération de retards basée sur les observations réelles
+- Variables prises en compte :
+  - heure
+  - jour de la semaine
+  - ligne
+  - arrêt
+- Dataset final : **50 000+ passages avec retard**
+
+Cette approche est couramment utilisée en **industrie**
+lorsque les données temps réel sont limitées.
+
+---
+
+## 🤖 Modélisation Machine Learning
+
+- **Type** : régression (retard en minutes)
+- **Features principales** :
+  - heure, jour de la semaine
+  - heure de pointe / week-end
+  - ligne et type de ligne
+  - fréquence et localisation des arrêts
+- **Modèles testés** :
+  - baseline
+  - Random Forest / Gradient Boosting
+- **Métrique principale** :
+  - MAE (Mean Absolute Error)
+
+---
+
+## 📊 Application Streamlit
+
+L’application permet :
+- 📈 d’explorer les retards (tendances, lignes, arrêts)
+- 🔍 de filtrer par heure, jour, ligne et arrêt
+- 🔮 de prédire un retard avec un indicateur de risque 🟢🟡🔴
+- 📌 de comparer prédiction et statistiques historiques
+
+---
+
+## 🛠️ Stack technique
+
+- Python  
+- Pandas, NumPy  
+- Scikit-learn  
+- Web scraping (GTFS-RT, Protocol Buffers)  
+- Streamlit  
+- Git & GitHub  
+
+---
+
+## 📦 Données & modèles
+Les données GTFS / GTFS-RT et les modèles entraînés
+ne sont pas versionnés sur GitHub pour des raisons de taille.
+
+
+## 📁 Structure du projet
+bash
+Copier le code
+PROJET-ML-WEB-SCRAPING/
 ├── app/              # Application Streamlit
 ├── data/             # Données
 │   ├── raw/          # Données brutes
@@ -35,44 +121,11 @@ MACHINE LEARNING/
 ├── src/              # Code source
 │   ├── scraping/     # Scripts de collecte
 │   └── ml/           # Scripts ML
-└── test/             # Tests
-```
+├── requirements.txt
+├── README.md
+└── .gitignore
 
 
-
-## Méthodologie de collecte
-
-### Approche hybride retenue
-
-**Contraintes identifiées :**
-- Collecte continue 24/7 nécessite infrastructure serveur
-- Délai projet : 3 semaines
-- Volume de données : besoin de milliers d'exemples pour le ML
-
-**Solution mise en place :**
-
-1. **Collecte temps réel ponctuelle (validation)**
-   - 10 collectes réparties sur 2 jours
-   - Heures de pointe : 7h-9h et 17h-19h
-   - Objectif : observer les patterns réels de retards
-
-2. **Base de données GTFS statique**
-   - 1 469 821 horaires théoriques
-   - Structure complète du réseau (2 146 arrêts, 44 lignes)
-
-3. **Simulation calibrée**
-   - Génération de retards basée sur les observations réelles
-   - Paramètres : heure, jour, ligne, arrêt
-   - Dataset final : 50 000+ passages avec retards simulés
-
-**Justification :**
-Cette approche permet de :
-- Démontrer la maîtrise du web scraping API (GTFS-RT)
-- Obtenir un dataset exploitable dans les délais
-- Valider les simulations par des données réelles
-- Approche utilisée en industrie (data augmentation)
-- 
-## 👤 Auteur
-
+👤 Auteurs
 Hafsa Mousalli
-Imane Lemkhayer
+Imane Lemkhaye

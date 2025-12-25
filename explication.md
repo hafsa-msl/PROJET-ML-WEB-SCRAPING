@@ -1,337 +1,322 @@
-# 📘 GUIDE DU PROJET - Prédiction des Retards Fil Bleu
 
+# 📘 GUIDE DU PROJET — FilBleu Predictor  
+*(Document interne — explication simple du travail réalisé)*
 
-## 🎯 Objectif du Projet
+---
 
-Créer une application qui prédit les retards des bus/trams de Fil Bleu (Tours) en utilisant le Machine Learning.
+## 🎯 Objectif du projet
 
-**Pipeline complet :**
+Créer une application qui permet :
+
+- d’**analyser les retards** sur le réseau Fil Bleu (Tours)
+- de **prédire un retard (en minutes)** selon :
+  - une ligne
+  - un arrêt
+  - une heure
+  - un jour
+
+Le projet suit un **pipeline data complet** :
+
 ```
-Collecte données → Calcul des retards → Préparation → ML → Application Streamlit
+
+Collecte temps réel
+→ Reconstruction des retards
+→ Préparation des données
+→ Machine Learning
+→ Application Streamlit
+
 ```
 
 ---
 
-## 📁 Structure du Projet
+## 🧱 Vue d’ensemble du projet (ce qu’il fait vraiment)
+
+- Les données **GTFS statiques** donnent les horaires théoriques
+- Les données **GTFS-RT** donnent les horaires réels observés
+- L’API **ne fournit pas les retards calculés**
+👉 on les **reconstruit nous-mêmes**
+- Ces retards servent ensuite :
+  - à l’analyse (Data Viz)
+  - à l’entraînement d’un modèle ML
+  - à une application Streamlit interactive
+
+---
+
+## 📁 Structure du projet (simplifiée)
+
 ```
-Machine Learning/
+
+PROJET-ML-WEB-SCRAPING/
 │
-├── README.md                    # Documentation officielle (pour le rapport)
-├── EXPLICATION.md               # Ce fichier (guide pour nous)
-├── requirements.txt             # Bibliothèques Python nécessaires
-│
-├── data/
-│   ├── raw/                     # ⚠️ NE JAMAIS MODIFIER CES FICHIERS !
-│   │   ├── gtfs/                # Horaires théoriques du réseau
-│   │   │   ├── stops.txt        # 2 146 arrêts
-│   │   │   ├── routes.txt       # 44 lignes
-│   │   │   ├── stop_times.txt   # 1 469 821 horaires programmés
-│   │   │   └── ...
-│   │   │
-│   │   └── gtfs_rt/             # Données temps réel collectées
-│   │       ├── trip_updates_20251212_223805.bin  (160 fichiers)
-│   │       └── ...
-│   │
-│   ├── processed/               # Données transformées
-│   │   ├── gtfs_rt_parsed.csv         # Données .bin converties en CSV
-│   │   └── delays_calculated.csv      # 🎯 Dataset final avec retards calculés
-│   │
-│   └── final/                   # Dataset ML prêt (à créer)
+├── app/                  # Application Streamlit
+│   └── app.py
 │
 ├── src/
-│   ├── scraping/                # Scripts de collecte
-│   │   ├── download_gtfs.py           # Télécharge GTFS statique
-│   │   ├── explore_gtfs.py            # Explore les données GTFS
-│   │   ├── scrape_gtfs_rt.py          # Collecte API temps réel
-│   │   ├── parse_gtfs_rt.py           # Convertit .bin → CSV
-│   │   └── calculate_delays.py        # 🔥 CALCULE LES RETARDS RÉELS
-│   │
-│   └── ml/                      # Scripts ML (à créer)
+│   ├── scraping/         # Collecte + traitement des données
+│   └── ml/               # Préparation dataset & entraînement ML
 │
-└── app/                         # Application Streamlit (à créer)
+├── requirements.txt
+├── README.md             # Documentation officielle (GitHub)
+├── EXPLICATION.md        # Ce fichier (guide interne)
+└── .gitignore
+
 ```
+
+⚠️ Les dossiers `data/` et `models/` existent **en local**,  
+mais **ne sont pas sur GitHub** (trop volumineux).
 
 ---
 
-## 📊 Les Données Collectées
+## 📊 Les données utilisées
 
-### GTFS Statique (horaires théoriques)
+### 1️⃣ GTFS statique (horaires théoriques)
 
-**Où :** `data/raw/gtfs/`  
-**Format :** Fichiers .txt (CSV)  
-**Ce que c'est :** Les horaires "normaux" affichés aux arrêts
+📍 **Rôle** : savoir **quand un bus est censé passer**
 
-**Fichiers importants :**
-- `stops.txt` : Liste des 2 146 arrêts avec coordonnées GPS
-- `routes.txt` : Liste des 44 lignes (Tram A, Bus 1-70, etc.)
-- `stop_times.txt` : 1 469 821 horaires programmés (qui passe où et quand)
-- `trips.txt` : Informations sur les trajets
+- Arrêts (2 146)
+- Lignes (44)
+- Horaires programmés (~1,4 million)
+
+Ces données servent de **référence théorique**.
 
 ---
 
-### GTFS-RT (temps réel)
+### 2️⃣ GTFS-RT (temps réel)
 
-**Où :** `data/raw/gtfs_rt/`  
-**Format :** Fichiers .bin (Protocol Buffers - format binaire)  
-**Ce que c'est :** L'heure RÉELLE de passage des bus (collectée en direct)
+📍 **Rôle** : savoir **quand le bus passe réellement**
 
-**Collecte effectuée :**
-- **Samedi 13/12** : 155 fichiers (12h40 → 21h00)
-- **Lundi 15/12** : 3 fichiers (18h33)
-- **Vendredi 12/12** : 2 fichiers (22h38, 23h02)
-- **Total : 160 fichiers = 291 699 passages**
+- Données collectées via l’API Fil Bleu
+- Format binaire `.bin` (Protocol Buffers)
+- Chaque fichier = un **snapshot** du réseau à un instant donné
 
-**Nom des fichiers :**
-```
-trip_updates_20251213_150053.bin
-             ^^^^^^^^  ^^^^^^
-             Date      Heure (15h00:53)
-```
+👉 Ces données sont **brutes** et **illisibles directement**.
 
 ---
 
-## 🔧 Les Scripts et leur Rôle
+## 🔧 Scripts principaux (expliqués simplement)
 
-### 1. `explore_gtfs.py` - Explorer le réseau
+### `scrape_gtfs_rt.py` — Collecte temps réel
 
-**Ce qu'il fait :**
-- Charge les fichiers GTFS statiques
-- Affiche combien de lignes, arrêts, trajets
-- Liste toutes les lignes du réseau
+- Se connecte à l’API Fil Bleu
+- Télécharge les horaires réels
+- Sauvegarde des fichiers `.bin`
 
-**Comment l'utiliser :**
-```powershell
-python src\scraping\explore_gtfs.py
-```
-
-**Résultat :**
-```
-🚏 Nombre d'arrêts : 2146
-🚌 Nombre de lignes : 44
-📍 Liste des lignes : Tram A, Bus 1, Bus 2...
-```
+👉 Sert uniquement à **collecter la matière première**
 
 ---
 
-### 2. `scrape_gtfs_rt.py` - Collecter les données temps réel
+### `parse_gtfs_rt.py` — Conversion `.bin → CSV`
 
-**Ce qu'il fait :**
-- Se connecte à l'API Fil Bleu
-- Récupère les horaires temps réel
-- Sauvegarde dans `data/raw/gtfs_rt/`
+Pourquoi ?
+- Les fichiers `.bin` ne sont pas exploitables
+- On les transforme en CSV lisible
 
-**Test simple (1 collecte) :**
-```powershell
-python src\scraping\scrape_gtfs_rt.py
-```
-
-**Collecte continue (déjà faite) :**
-- Samedi : collecte automatique pendant 8h
-- Lundi : 3 collectes manuelles
+Résultat :
+- Un fichier avec :
+  - trip_id
+  - stop_id
+  - heure réelle (timestamp)
 
 ---
 
-### 3. `parse_gtfs_rt.py` - Convertir .bin en CSV
+### `calculate_delays.py` — ⭐ CŒUR DU PROJET !!!!
 
-**Pourquoi ce script ?**
+📌 **Problème de départ**  
+L’API Fil Bleu fournit un champ `delay`, mais il vaut **toujours 0**.
 
-Les fichiers `.bin` sont **illisibles** :
-```
-��������trip_id��stop_id��...  ❌
-```
+📌 **Solution mise en place**
+On calcule nous-mêmes :
 
-Le parser les convertit en **CSV exploitable** :
-```csv
-trip_id,stop_id,arrival_time_unix,...  ✅
 ```
 
-**Comment l'utiliser :**
-```powershell
-python src\scraping\parse_gtfs_rt.py
-```
+retard (minutes) = heure réelle - heure théorique
 
-**Résultat :**
-- Crée `data/processed/gtfs_rt_parsed.csv`
-- 291 699 passages lisibles en CSV
+````
 
----
-
-### 4. `calculate_delays.py` - 🔥 CALCULER LES RETARDS
-
-**⚠️ SCRIPT CRUCIAL !**
-
-**Pourquoi il existe :**
-
-L'API Fil Bleu envoie :
-- ✅ Heure théorique (prévue) : `22:30:00`
-- ✅ Heure réelle (actuelle) : `22:35:00`
-- ❌ Mais PAS le retard calculé (toujours à `0`)
-
-**→ On doit calculer nous-mêmes : Retard = Heure réelle - Heure théorique**
-
-**Ce que fait le script :**
-1. Charge GTFS statique (horaires théoriques)
-2. Charge GTFS-RT parsé (horaires réels)
-3. Fusionne les deux sur `trip_id` + `stop_id`
-4. Calcule : `retard = heure_réelle - heure_théorique`
+Ce que fait le script :
+1. Charge les horaires théoriques (GTFS statique)
+2. Charge les horaires réels (GTFS-RT parsé)
+3. Fusionne sur `trip_id` + `stop_id`
+4. Calcule le retard !!!
 5. Corrige le fuseau horaire (UTC → Europe/Paris)
 
-**Comment l'utiliser :**
+📊 Résultat :
+- Un dataset final `delays_calculated.csv`
+- Retards positifs = retard
+- Retards négatifs = avance
+
+---
+
+## 🤖 Machine Learning (ce qui a été fait)
+
+### Pourquoi un problème de régression ?
+
+L’objectif du projet est de **prédire un retard en minutes**.
+
+Un retard :
+- n’est pas une catégorie (petit / moyen / grand),
+- mais une **valeur numérique continue**  
+  (exemples : 1.5 min, 4.2 min, 12 min, -2 min).
+
+➡️ Ce type de problème correspond à une **régression**  
+(prédire un nombre réel), et non à une classification.
+
+---
+
+### Variable cible
+
+La variable à prédire est : delay_minutes
+Elle représente :
+- un **retard positif** → le véhicule arrive en retard,
+- un **retard négatif** → le véhicule arrive en avance.
+
+Cette variable est directement exploitable d’un point de vue métier
+(car exprimée en minutes).
+
+---
+
+### Features utilisées (variables explicatives)
+
+Le retard dépend fortement du **contexte de circulation**.
+Les principales variables utilisées sont :
+
+- **heure** : le trafic varie fortement selon le moment de la journée
+- **jour de la semaine** : semaine ≠ week-end
+- **heure de pointe** : congestion plus forte
+- **week-end** : comportement différent du réseau
+- **ligne** : certaines lignes sont structurellement plus sensibles aux retards
+- **arrêt** : localisation et fréquence influencent le retard
+
+Ces variables permettent de décrire une situation réelle de passage d’un bus.
+
+---
+
+### Modèles testés
+
+Plusieurs modèles ont été évalués :
+
+- **Baseline**  
+  → prédiction simple servant de point de comparaison
+
+- **Random Forest / Gradient Boosting**  
+  → modèles non linéaires capables de capturer :
+  - effets d’heures de pointe
+  - différences entre lignes
+  - interactions entre variables
+
+Ces modèles sont bien adaptés aux données tabulaires
+et aux phénomènes non linéaires.
+
+---
+
+### Métrique choisie : MAE
+
+La métrique principale est la **MAE (Mean Absolute Error)**.
+
+Pourquoi ?
+- Elle s’exprime en **minutes**
+- Elle est **facile à interpréter**
+- Une MAE de 3 signifie :
+  > “En moyenne, la prédiction se trompe de 3 minutes”
+
+C’est une métrique directement compréhensible pour un usage métier.
+
+---
+
+Le modèle retenu est le **Gradient Boosting**.
+
+Même si les Random Forest sont souvent efficaces sur des données tabulaires,
+le Gradient Boosting obtient ici de **meilleures performances sur le jeu de test** :
+
+- MAE plus faible
+- RMSE plus faible
+- R² plus élevé
+
+Cela indique une meilleure capacité à prédire précisément
+le retard en minutes.
+
+Le choix du modèle est donc basé sur les **résultats observés**
+et non sur un choix théorique.
+
+CONCLUSION : On a testé plusieurs modèles.
+Le Gradient Boosting a été retenu car il obtient la plus faible erreur moyenne en minutes sur le jeu de test.
+Le choix du modèle est donc basé sur les résultats observés, et non sur un choix théorique.
+
+---
+
+## 📊 Application Streamlit
+
+L’application permet :
+
+- une page **Data Visualization**
+  - tendances horaires
+  - lignes les plus en retard
+  - arrêts les plus impactés
+- une page **Prédiction**
+  - choix ligne / arrêt / heure / jour
+  - estimation du retard
+  - indicateur de risque 🟢🟡🔴
+
+👉 C’est la **mise en valeur finale** du travail data + ML.
+
+---
+
+## 📦 Données & GitHub (point important)
+
+Les dossiers suivants **ne sont pas sur GitHub** :
+- `data/`
+- `models/`
+
+Pourquoi ?
+- Trop volumineux
+- Mauvaise pratique professionnelle
+
+👉 Les données sont **reconstruites via les scripts** :
 ```powershell
-python src\scraping\calculate_delays.py
-```
-
-**Résultat :**
-```
-📊 STATISTIQUES DES RETARDS :
-  Retard moyen : 4.93 minutes
-  Retard médian : 1.92 minutes
-  Retard max : 150.92 minutes
-  Retard min : -19.08 minutes (en avance)
-  
-💾 Données sauvegardées : data/processed/delays_calculated.csv
-```
+python src/scraping/scrape_gtfs_rt.py
+python src/ml/prepare_dataset.py
+python src/ml/train_model.py
+````
 
 ---
 
-## ✅ Ce Qui a Été Fait (État Actuel)
+## ✅ Ce qui a été fait (résumé clair)
 
-**Phase 1 : Collecte et traitement des données ✅ TERMINÉE**
+✔️ Collecte GTFS-RT
+✔️ Parsing Protocol Buffers
+✔️ Reconstruction des retards
+✔️ Dataset exploitable
+✔️ Modélisation ML
+✔️ Application Streamlit
+✔️ Repo GitHub propre (code only)
 
-- [x] Structure du projet créée
-- [x] Bibliothèques Python installées (`pip install -r requirements.txt`)
-- [x] Données GTFS statiques téléchargées (1.4M d'horaires)
-- [x] Script d'exploration créé et testé
-- [x] 160 fichiers temps réel collectés (291 699 passages)
-- [x] Parser créé : .bin → CSV
-- [x] **Retards calculés** : fusion GTFS + GTFS-RT
-- [x] **Dataset final prêt** : `delays_calculated.csv`
-
-**→ Progression : 40% du projet**
+👉 Le projet couvre **toute la chaîne data**.
 
 ---
 
-## 🚀 Prochaines Étapes
+## 🧠 Ce que le projet démontre
 
-### Phase 2 : Préparation des données ML (À FAIRE)
-
-**Objectif :** Transformer `delays_calculated.csv` en dataset exploitable pour le ML
-
-**Tâches :**
-1. **Feature engineering** :
-   - Extraire l'heure (8h, 18h...)
-   - Extraire le jour de la semaine (lundi, samedi...)
-   - Créer variable "est_heure_pointe" (7h-9h, 17h-19h)
-   - Encoder les variables catégorielles (ligne, arrêt)
-
-2. **Nettoyage** :
-   - Supprimer les retards aberrants (> 60 min = incidents)
-   - Gérer les valeurs manquantes
-
-3. **Split train/test** :
-   - 80% entraînement
-   - 20% test
+* Compréhension des données temps réel
+* Manipulation de formats complexes
+* Raisonnement data (pas juste appliquer un modèle)
+* Logique métier (retard en minutes)
+* Capacité à livrer une application fonctionnelle
 
 ---
 
-### Phase 3 : Machine Learning (À FAIRE)
+## 📌 Point clé à retenir
 
-**Modèles à tester :**
-1. Régression linéaire (baseline)
-2. Random Forest
-3. XGBoost
+> Le cœur du projet n’est PAS le modèle ML
+> 👉 c’est la **reconstruction fiable du retard**
 
-**Métriques :**
-- MAE (erreur moyenne en minutes)
-- RMSE
-- R²
+Sans cette étape :
 
----
-
-### Phase 4 : Application Streamlit (À FAIRE)
-
-**Interface utilisateur :**
-- Sélectionner ligne, arrêt, heure
-- Afficher prédiction du retard
-- Indicateur de risque (fluide / modéré / élevé)
+* pas d’analyse
+* pas de prédiction
+* pas de valeur métier
 
 ---
 
-## 💡 Commandes Utiles
 
-**Voir la structure des dossiers :**
-```powershell
-tree /F
-```
 
-**Installer les bibliothèques (si pas fait) :**
-```powershell
-pip install -r requirements.txt
-```
 
-**Lancer un script :**
-```powershell
-python src\scraping\nom_du_script.py
-```
-
-**Voir les données collectées :**
-```powershell
-import pandas as pd
-df = pd.read_csv('data/processed/delays_calculated.csv')
-print(df.head())
-```
-
----
-
-## 🎓 Points Importants pour le Rapport
-
-### Justification de l'approche
-
-**Problème rencontré :**
-L'API GTFS-RT de Fil Bleu ne fournit pas les retards calculés (champ `delay` toujours à `0`).
-
-**Solution implémentée :**
-Calcul manuel des retards en fusionnant :
-- Horaires théoriques (GTFS statique `stop_times.txt`)
-- Horaires réels (GTFS-RT `arrival_time_unix`)
-- Gestion du fuseau horaire Europe/Paris (+1h par rapport à UTC)
-
-**Résultat :**
-- 291 699 passages avec retards calculés
-- Retard moyen : 4.93 minutes
-- Distribution réaliste (médiane 1.92 min, max 150 min)
-
-**Compétences démontrées :**
-- Web scraping API temps réel
-- Parsing de formats complexes (Protocol Buffers)
-- Fusion de datasets hétérogènes
-- Calculs temporels avec fuseaux horaires
-
----
-
-## ⚠️ Points d'Attention
-
-1. **Ne JAMAIS modifier `data/raw/`** : Ce sont les données originales
-2. **Les timestamps sont en UTC** : Toujours convertir en Europe/Paris
-3. **Le champ `delay` de l'API est inutile** : Toujours à 0, on calcule nous-mêmes
-4. **Les retards > 60 min sont souvent des incidents** : À filtrer pour le ML
-
----
-
-## 📊 Statistiques Finales
-
-**Données collectées :**
-- 160 snapshots temporels
-- 291 699 passages enregistrés
-- Sur 2 jours (samedi + lundi)
-
-**Retards calculés :**
-- Retard moyen : 4.93 min
-- Retard médian : 1.92 min
-- 95% des retards entre -2 et +15 min
-
----
-
-**État actuel : 40% du projet terminé**  
-**Prochaine étape : Feature engineering + ML**  
-**Deadline : Début janvier 2025**
