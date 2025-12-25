@@ -110,8 +110,7 @@ ne sont pas versionnés sur GitHub pour des raisons de taille.
 
 
 ## 📁 Structure du projet
-bash
-Copier le code
+```
 PROJET-ML-WEB-SCRAPING/
 ├── app/              # Application Streamlit
 ├── data/             # Données
@@ -124,8 +123,8 @@ PROJET-ML-WEB-SCRAPING/
 ├── requirements.txt
 ├── README.md
 └── .gitignore
-
+```
 
 👤 Auteurs
 Hafsa Mousalli
-Imane Lemkhaye
+Imane Lemkhayer
