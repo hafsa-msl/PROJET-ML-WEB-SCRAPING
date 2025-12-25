@@ -1,0 +1,12 @@
+beautifulsoup4
+gtfs-realtime-bindings
+joblib
+matplotlib
+numpy
+pandas
+plotly
+requests
+scikit-learn
+selenium
+streamlit
+xgboost
