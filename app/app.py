@@ -11,14 +11,23 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ---------------- PATHS ----------------
+# ---------------- PATHS (VERSION NETTOYÉE) ----------------
+# PROJECT_ROOT sera : C:\Users\pc\...\PROJET-ML-WEB-SCRAPING
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-MODELS_DIR = PROJECT_ROOT / "models"
-FINAL_DIR = PROJECT_ROOT / "data" / "final"
 
+MODELS_DIR = PROJECT_ROOT / "models"
+DATA_DIR = PROJECT_ROOT / "data"  # Le dossier que tu viens de déplacer
+
+FINAL_DIR = DATA_DIR / "final"
+PROCESSED_DIR = DATA_DIR / "processed"
+
+# Chemins des fichiers
 MODEL_PATH = MODELS_DIR / "best_model.joblib"
 COVER_ROUTE = FINAL_DIR / "coverage_by_route.csv"
 COVER_STOPS = FINAL_DIR / "coverage_top_stops.csv"
+TEST_PATH = FINAL_DIR / "test.csv"
+DATA_PROCESSED = PROCESSED_DIR / "delays_calculated.csv"
+DATA_TRAIN = FINAL_DIR / "train.csv"
 
 # ---------------- STYLE (PALETTE UNDER THE SEA) ----------------
 APP_CSS = """

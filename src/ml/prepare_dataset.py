@@ -5,17 +5,21 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-
-
 # ---------------------------
 # Config chemins
 # ---------------------------
-PROJECT_ROOT = Path(".")
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-GTFS_DIR = PROJECT_ROOT / "data" / "raw" / "gtfs"
-FINAL_DIR = PROJECT_ROOT / "data" / "final"
+current_script_path = Path(__file__).resolve()
+PROJECT_ROOT = current_script_path.parent.parent.parent
 
+# On pointe directement vers le dossier data à la racine
+DATA_DIR = PROJECT_ROOT / "data"
+
+PROCESSED_DIR = DATA_DIR / "processed"
+GTFS_DIR = DATA_DIR / "raw" / "gtfs" 
+FINAL_DIR = DATA_DIR / "final"
 DELAYS_FILE = PROCESSED_DIR / "delays_calculated.csv"
+
+
 
 
 # ---------------------------
@@ -107,6 +111,7 @@ def quality_report(df: pd.DataFrame) -> None:
     cols_preview = [c for c in ["trip_id", "stop_id", "arrival_time", "delay_minutes", "collecte_timestamp"] if c in df.columns]
     print(df[cols_preview].head(5))
 
+# le script supprime les lignes aberrantes . Il ne garde que les bus ayant entre 10 min d'avance et 60 min de retard
 
 def filter_outliers(df: pd.DataFrame, min_delay: float = -10.0, max_delay: float = 60.0) -> pd.DataFrame:
     """

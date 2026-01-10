@@ -23,20 +23,28 @@ from pathlib import Path
 import json
 import numpy as np
 import pandas as pd
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import GridSearchCV
 import joblib
 
+current_script_path = Path(__file__).resolve()
+PROJECT_ROOT = current_script_path.parent.parent.parent
 
-PROJECT_ROOT = Path(".")
-FINAL_DIR = PROJECT_ROOT / "data" / "final"
+# On pointe vers le dossier data à la racine
+DATA_DIR = PROJECT_ROOT / "data"
+
+# On définit le chemin vers le dossier final (à la racine)
+FINAL_DIR = DATA_DIR / "final"
 MODELS_DIR = PROJECT_ROOT / "models"
 
 TRAIN_PATH = FINAL_DIR / "train.csv"
 TEST_PATH = FINAL_DIR / "test.csv"
+
+
 
 
 def log(title: str) -> None:
@@ -100,6 +108,9 @@ def main():
     best_name = None
     best_mae = float("inf")
     best_params = None
+
+    print("\n--- APERÇU DES DONNÉES (5 premières lignes) ---")
+    print(X_train.head())
 
     # 1) Baseline
     log("📏 Baseline")
@@ -182,7 +193,6 @@ def main():
 
     log("🏁 Résumé")
     print(metrics_df.to_string(index=False))
-
 
 if __name__ == "__main__":
     main()

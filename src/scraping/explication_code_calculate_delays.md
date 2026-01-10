@@ -1,31 +1,32 @@
+# Objectif principal du fichier 
+Ce script a un objectif précis : comparer l'heure prévue (théorique) d'un bus ou train avec l'heure réelle à laquelle il est passé pour en déduire le retard.
 
+# Importation et chargement des packages
+- import pandas as pd
+- from pathlib import Path
+- from datetime import datetime, timedelta
 
-"""
-Script pour calculer les retards réels
-En fusionnant GTFS statique (horaires théoriques) et GTFS-RT (horaires réels)
-"""
+# Création d'une fonction pour charger les données théoriques
 
-import pandas as pd
-from pathlib import Path
-from datetime import datetime, timedelta
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-def load_gtfs_static():
+- def load_gtfs_static():
     """
     Charge les horaires théoriques depuis GTFS statique
     """
     print("📂 Chargement des horaires théoriques (GTFS statique)...")
     
-    gtfs_dir = Path("data/raw/gtfs")
+- gtfs_dir = Path("data/raw/gtfs")= défini où se trouvent les fichiers GTFS 
     
-    # Charger stop_times (horaires théoriques)
-    stop_times = pd.read_csv(gtfs_dir / "stop_times.txt")
+# Charger stop_times (horaires théoriques)
+    
+- stop_times = pd.read_csv(gtfs_dir / "stop_times.txt")
     
     print(f"  ✅ {len(stop_times)} horaires théoriques chargés")
     
     return stop_times
 
-def load_gtfs_rt_parsed():
+# Création d'une fonction pour charger les données réelles des heures de passages
+
+- def load_gtfs_rt_parsed():
     """
     Charge les horaires réels depuis GTFS-RT parsé
     """
@@ -36,8 +37,10 @@ def load_gtfs_rt_parsed():
     print(f"  ✅ {len(df)} passages temps réel chargés")
     
     return df
+# Fonction pour convertir les horaires GTFS en secondes depuis minuit
+ex: Si tu demandes à Python de faire "14:05:00" - "14:00:00", il va te répondre : "Je ne sais pas soustire des lettres" . En convertissant tout en secondes ($50700 - 50400$), il peut faire le calcul instantanément et trouver$300$secondes.
 
-def parse_gtfs_time(time_str):
+- def parse_gtfs_time(time_str):
     """
     Convertit un horaire GTFS (format HH:MM:SS) en secondes depuis minuit
     Gère les heures > 24 (ex: 25:30:00 = 01:30:00 le lendemain)
@@ -55,7 +58,9 @@ def parse_gtfs_time(time_str):
     
     return total_seconds
 
-def calculate_delays(stop_times, gtfs_rt):
+# Fonction principale de calcul des retards
+
+- def calculate_delays(stop_times, gtfs_rt):
     """
     Calcule les retards en comparant horaires théoriques vs réels
     """
@@ -151,3 +156,42 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Conclusion 
+
+Le but du script est de créer un nouveau tableau qui contient une colonne "Retard" . Pour cela, l'ordinateur doit comparer l'heure prévue dans les fiches horaires et l'heure où le bus est réellement passé.
+
+## Le chargement des données
+D'abord, le programme va rechercher deux fichiers différents sur votre ordinateur.
+- Il ouvre le fichier statique , qui contient les horaires officiels (le dictionnaire des horaires).
+- Il ouvre le fichier réel , qui contient les heures de passage enregistrées sur le terrain (les données réalisées).
+
+## La traduction en secondes
+
+L'ordinateur ne sait pas manipuler des heures écrites avec des deux points comme "14:30".
+
+Le script transforme chaque heure en un grand nombre de secondes .
+
+Par exemple, au lieu de lire "01:00 du matin", il allume "3600 secondes".
+
+Cela permet de faire des calculs mathématiques simples (des soustractions) sans se tromper.
+
+## La fusion des données
+C'est l'étape cruciale. Le script fusionne les deux fichiers pour n'en ancien qu'un seul.
+
+Il utilise des identifiants uniques (le numéro du trajet et l'identifiant de l'arrêt) pour faire correspondre chaque passage réel avec son horaire théorique prévu.
+
+Résultat : On obtient un tableau où, sur une même ligne, on retrouve côte à côte l'heure prévue et l'heure réelle pour un bus précis à un arrêt précis.
+
+## Calcul et conversion du retard
+Une fois les données alignées sur la même ligne, le calcul devient possible :
+
+Soustraction : On fait Heure Réelle (secondes)- Heure Théorique (secondes).
+
+Conversion : Le résultat (le retard en secondes) est divisé par 60 pour obtenir un retard en minutes .
+
+Analyser : Le script calcule ensuite des statistiques globales (moyenne, maximum, écart-type) pour vérifier la qualité des données.
+
+## Sauvegarde des résultats
+
+Le résultat final est enregistré dans un nouveau fichier : delays_calculated.csv. Ce fichier propre et enrichi servira de base pour entraîner le modèle de Machine Learning
