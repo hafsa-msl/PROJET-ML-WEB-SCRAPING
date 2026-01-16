@@ -113,7 +113,7 @@ Pourquoi ?
 
 Résultat :
 - Un fichier avec :
-  - trip_id
+  - trip_id(Mises à jour des trajets):Pour chaque bus en circulation, le système indique s'il est en avance ou en retard par rapport à l'horaire théorique au prochain arrêt.
   - stop_id
   - heure réelle (timestamp)
 
