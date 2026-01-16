@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from pathlib import Path
 import joblib
 from datetime import date
@@ -12,13 +13,16 @@ st.set_page_config(
 )
 
 # ---------------- PATHS ----------------
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-MODELS_DIR = PROJECT_ROOT / "models"
-FINAL_DIR = PROJECT_ROOT / "data" / "final"
+PROJECT_ROOT = Path(__file__).resolve().parent  # app.py est à la racine
+DEMO_DIR = PROJECT_ROOT / "demo"
 
-MODEL_PATH = MODELS_DIR / "best_model.joblib"
-COVER_ROUTE = FINAL_DIR / "coverage_by_route.csv"
-COVER_STOPS = FINAL_DIR / "coverage_top_stops.csv"
+MODEL_PATH = DEMO_DIR / "model.joblib"
+DEMO_DATA = DEMO_DIR / "data.csv"
+
+# (optionnel) si tu copies ces 2 fichiers aussi dans demo/
+COVER_ROUTE = DEMO_DIR / "coverage_by_route.csv"
+COVER_STOPS = DEMO_DIR / "coverage_top_stops.csv"
+
 
 # ---------------- STYLE (PALETTE UNDER THE SEA) ----------------
 APP_CSS = """
@@ -117,6 +121,7 @@ div.stButton > button:hover{
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
 # ---------------- HELPERS ----------------
+
 def format_delay_minutes(delay: float) -> str:
     seconds = int(round(abs(delay) * 60))
 
@@ -169,21 +174,88 @@ def load_model(model_path: Path):
     return bundle["model"], bundle["features"], bundle.get("name", "model")
 
 @st.cache_data
-def load_dropdowns(cover_route_path: Path, cover_stops_path: Path):
-    routes_list, stops_list = [], []
-
-    if cover_route_path.exists():
-        routes = pd.read_csv(cover_route_path)
-        if "route_short_name" in routes.columns:
-            routes_list = routes["route_short_name"].astype(str).dropna().unique().tolist()
-
-    if cover_stops_path.exists():
-        stops = pd.read_csv(cover_stops_path)
-        if "stop_id" in stops.columns and "stop_name" in stops.columns:
-            stops["label"] = stops["stop_id"].astype(str) + " — " + stops["stop_name"].astype(str)
-            stops_list = stops[["stop_id", "stop_name", "label"]].to_dict("records")
-
-    return routes_list, stops_list
+def load_routes_and_stops_mapping():
+    """Charge les lignes, arrêts ET la correspondance ligne→arrêts"""
+    gtfs_dir = PROJECT_ROOT / "data" / "raw" / "gtfs"
+    
+    # 1. Charger les lignes
+    routes_path = gtfs_dir / "routes.txt"
+    routes_df = pd.read_csv(routes_path) if routes_path.exists() else pd.DataFrame()
+    routes_list = sorted(routes_df["route_short_name"].astype(str).dropna().unique().tolist()) if not routes_df.empty else ["A"]
+    
+    # 2. Charger les arrêts avec coordonnées
+    stops_path = gtfs_dir / "stops.txt"
+    stops_df = pd.read_csv(stops_path) if stops_path.exists() else pd.DataFrame()
+    
+    # 3. Charger trips pour avoir route_id → trip_id
+    trips_path = gtfs_dir / "trips.txt"
+    trips_df = pd.read_csv(trips_path) if trips_path.exists() else pd.DataFrame()
+    
+    # 4. Charger stop_times pour avoir trip_id → stop_id
+    stop_times_path = gtfs_dir / "stop_times.txt"
+    stop_times_df = pd.read_csv(stop_times_path) if stop_times_path.exists() else pd.DataFrame()
+    
+    # 5. Fusionner pour avoir route_id → stops
+    if not trips_df.empty and not stop_times_df.empty and not routes_df.empty:
+        # trips + routes
+        trips_routes = trips_df.merge(routes_df[["route_id", "route_short_name"]], on="route_id")
+        
+        # trips + stop_times
+        trips_stops = trips_routes.merge(
+            stop_times_df[["trip_id", "stop_id"]], 
+            on="trip_id"
+        )
+        
+        # Groupe par ligne pour avoir tous les arrêts de chaque ligne
+        route_stops_map = (
+            trips_stops.groupby("route_short_name")["stop_id"]
+            .apply(lambda x: sorted(set(x)))
+            .to_dict()
+        )
+    else:
+        route_stops_map = {}
+    
+    # 6. Créer la liste des arrêts avec infos complètes
+# 6. Créer la liste des arrêts avec infos complètes
+    if not stops_df.empty:
+        def clean_stop_name(stop_id):
+            """Enlève le préfixe TTR:XXXXX-"""
+            if pd.isna(stop_id):
+                return "Inconnu"
+            stop_id = str(stop_id)
+            # Enlever "TTR:" et tout jusqu'au dernier "-"
+            if ":" in stop_id and "-" in stop_id:
+                # Format: TTR:GAVSB-1T → 1T
+                parts = stop_id.split(":")
+                if len(parts) > 1:
+                    last_part = parts[-1]  # GAVSB-1T
+                    if "-" in last_part:
+                        return last_part.split("-")[-1]  # 1T
+                    return last_part
+            return stop_id
+        
+        stops_df["stop_id_clean"] = stops_df["stop_id"].apply(clean_stop_name)
+        
+        # ✅ Clarifier les directions dans le label
+        def format_label(row):
+            code = row["stop_id_clean"]
+            name = str(row["stop_name"])
+            
+            # Détecter la direction (1T ou 2T)
+            if code.endswith("1T"):
+                return f"{code} — {name} (→ Direction 1)"
+            elif code.endswith("2T"):
+                return f"{code} — {name} (← Direction 2)"
+            else:
+                return f"{code} — {name}"
+        
+        stops_df["label"] = stops_df.apply(format_label, axis=1)
+        
+        stops_list = stops_df[["stop_id", "stop_name", "label", "stop_lat", "stop_lon"]].to_dict("records")
+    else:
+        stops_list = []
+    
+    return routes_list, stops_list, route_stops_map
 
 def build_features_input(feat_cols, route_short_name, hour, day_of_week, stop_freq, stop_lat, stop_lon, route_type):
     if 0 <= hour <= 5:
@@ -309,9 +381,11 @@ if page == "Accueil":
         if st.button("Faire une prédiction"):
             go("Prédiction")
 
+
+
+
 elif page == "Prédiction":
     st.markdown("## 🔮 Prédiction de retard")
-    st.caption("Démo du modèle de régression entraîné sur retards reconstruits (GTFS-RT + GTFS).")
 
     TEST_PATH = PROJECT_ROOT / "data" / "final" / "test.csv"
     METRICS_CSV = PROJECT_ROOT / "models" / "metrics.csv"
@@ -322,7 +396,7 @@ elif page == "Prédiction":
         st.stop()
 
     model, feat_cols, model_name = load_model(MODEL_PATH)
-    routes_list, stops_list = load_dropdowns(COVER_ROUTE, COVER_STOPS)
+    routes_list, all_stops_list, route_stops_map = load_routes_and_stops_mapping()
 
     @st.cache_data
     def load_test(path: Path):
@@ -362,8 +436,9 @@ elif page == "Prédiction":
 - Les modèles type **Gradient Boosting / Random Forest** gèrent bien ces effets
 
 **Bonnes pratiques**
-- Split **temporel** train/test (pas de fuite de données)
-- Métrique principale : **MAE** (minutes = interprétable métier)
+- Split **temporel** train/test  → Le modèle apprend sur le passé & teste sur le futur 
+
+- Métrique principale : **MAE** (en minutes)
         """)
 
         if METRICS_CSV.exists():
@@ -371,17 +446,51 @@ elif page == "Prédiction":
             st.dataframe(pd.read_csv(METRICS_CSV), use_container_width=True)
         else:
             st.info("Aucune métrique trouvée (models/metrics.csv).")
+        st.caption(
+            "La MAE représente l’erreur moyenne en minutes entre le retard réel et le retard prédit. "
+            "Par exemple, une MAE de 6 minutes signifie que la prédiction se trompe en moyenne de ±6 minutes."
+        )
 
         if BEST_PARAMS.exists():
             st.write("### Hyperparamètres (meilleur modèle)")
             try:
                 import json
-                st.json(json.loads(BEST_PARAMS.read_text(encoding="utf-8")))
+                params = json.loads(BEST_PARAMS.read_text(encoding="utf-8"))
+                
+                if params:
+                    # Afficher les paramètres dans des colonnes
+                    cols = st.columns(len(params))
+                    
+                    # Noms simplifiés pour l'affichage
+                    param_labels = {
+                        "learning_rate": "Taux d'apprentissage",
+                        "max_depth": "Profondeur max",
+                        "n_estimators": "Nb d'arbres",
+                        "min_samples_split": "Min échantillons (split)",
+                        "min_samples_leaf": "Min échantillons (feuille)"
+                    }
+                    
+                    for idx, (key, value) in enumerate(params.items()):
+                        with cols[idx]:
+                            label = param_labels.get(key, key)
+                            st.metric(label, value)
+                    
+                    st.caption("""
+                    Ces paramètres ont été trouvés automatiquement par GridSearch pour minimiser l'erreur.
+                    """)
+                else:
+                    st.info("Modèle avec paramètres par défaut")
+                    
             except Exception:
                 st.info("best_params.json présent mais lecture impossible.")
 
-        with st.expander("Voir les features attendues par le modèle"):
-            st.write(feat_cols)
+        with st.expander("🔍 Voir les features utilisées par le modèle"):
+            st.caption(f"**{len(feat_cols)} features au total**")
+            
+            # Afficher en 3 colonnes
+            cols = st.columns(3)
+            for idx, feat in enumerate(feat_cols):
+                cols[idx % 3].write(f"• {feat}")    
 
     with tab2:
         st.subheader("📈 Résultats sur le jeu de test")
@@ -393,31 +502,70 @@ elif page == "Prédiction":
             preds, y = compute_preds_on_test(df_test, y_col="delay_minutes")
             df_res = pd.DataFrame({"y_true": y.values if y is not None else [None] * len(preds), "y_pred": preds})
 
-            if y is not None:
-                df_res["abs_error"] = (df_res["y_true"] - df_res["y_pred"]).abs()
-                colA, colB, colC = st.columns(3)
-                with colA: st.metric("MAE (test)", f"{df_res['abs_error'].mean():.2f} min")
-                with colB: st.metric("Erreur médiane", f"{df_res['abs_error'].median():.2f} min")
-                with colC:
-                    pct5 = (df_res["abs_error"] > 5).mean() * 100
-                    st.metric("% erreurs > 5 min", f"{pct5:.1f}%")
+        if y is not None:
+            df_res = pd.DataFrame({
+                "Retard réel (min)": y.values if y is not None else [None] * len(preds), 
+                "Retard prédit (min)": preds
+            })
+            
+            # ✅ AJOUTE cette ligne pour calculer l'erreur absolue
+            df_res["Erreur absolue (min)"] = (df_res["Retard réel (min)"] - df_res["Retard prédit (min)"]).abs()
+            
+            colA, colB, colC = st.columns(3)
+            with colA: st.metric("MAE (test)", f"{df_res['Erreur absolue (min)'].mean():.2f} min")
+            with colB: st.metric("Erreur médiane", f"{df_res['Erreur absolue (min)'].median():.2f} min")
+            with colC:
+                pct5 = (df_res["Erreur absolue (min)"] > 5).mean() * 100
+                st.metric("% erreurs > 5 min", f"{pct5:.1f}%")
 
-            st.write("### Réalité vs Prédiction (échantillon)")
-            n_show = st.slider("Nombre de lignes à afficher", 10, 500, 50)
-            st.dataframe(df_res.head(n_show), use_container_width=True)
+        st.write("### Réalité vs Prédiction (échantillon)")
+        n_show = st.slider("Nombre de lignes à afficher", 10, 500, 50)
+        st.dataframe(df_res.head(n_show), use_container_width=True)
 
     with tab3:
         st.subheader("🧾 Prédire un trajet")
         st.caption("Renseigne une situation, on estime le retard (minutes) + un niveau de risque.")
 
+        # Charger les données
+        routes_list, all_stops_list, route_stops_map = load_routes_and_stops_mapping()
+
         col1, col2 = st.columns([1, 1])
+        
         with col1:
-            route = st.selectbox("Choisir une ligne (route_short_name)", options=routes_list if routes_list else ["A"])
-            stop_choice = st.selectbox(
-                "Choisir un arrêt",
-                options=stops_list if stops_list else [{"stop_id": "NA", "stop_name": "Inconnu", "label": "NA — Inconnu"}],
-                format_func=lambda x: x["label"] if isinstance(x, dict) else str(x)
+            # 1. Sélection de la ligne
+            route = st.selectbox(
+                "Choisir une ligne",
+                options=routes_list
             )
+            
+            # ✅ Info sur les directions
+            st.info(" **1** = Direction 1 | **2** = Direction 2 (sens inverse)")
+            
+            # 2. Filtrer les arrêts selon la ligne sélectionnée
+            if route and route in route_stops_map:
+                # Récupérer les stop_id de cette ligne
+                valid_stop_ids = route_stops_map[route]
+                
+                # Filtrer la liste complète
+                stops_for_route = [
+                    stop for stop in all_stops_list 
+                    if stop["stop_id"] in valid_stop_ids
+                ]
+            else:
+                # Si pas de mapping, afficher tous
+                stops_for_route = all_stops_list
+            
+            # 3. Sélection de l'arrêt (filtré)
+            if stops_for_route:
+                stop_choice = st.selectbox(
+                    "Choisir un arrêt",
+                    options=stops_for_route,
+                    format_func=lambda x: x["label"]
+                )
+            else:
+                st.warning("Aucun arrêt trouvé pour cette ligne")
+                stop_choice = {"stop_id": "NA", "stop_name": "Inconnu", "label": "NA — Inconnu", "stop_lat": 47.39, "stop_lon": 0.68}
+        
         with col2:
             hour = st.slider("Heure", 0, 23, 18)
             day_of_week = st.selectbox(
@@ -426,7 +574,15 @@ elif page == "Prédiction":
                 format_func=lambda d: ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"][d]
             )
 
-        stop_lat, stop_lon, stop_freq = 47.3941, 0.6848, 0.0001
+        # Récupérer les coordonnées de l'arrêt
+        if stop_choice and isinstance(stop_choice, dict):
+            stop_lat = stop_choice.get("stop_lat", 47.3941)
+            stop_lon = stop_choice.get("stop_lon", 0.6848)
+            stop_id = stop_choice.get("stop_id", "NA")
+        else:
+            stop_lat, stop_lon, stop_id = 47.3941, 0.6848, "NA"
+        
+        stop_freq = 0.0001
         route_type = 0 if str(route).upper() == "A" else 3
 
         if st.button("🔮 Lancer la prédiction"):
@@ -443,7 +599,7 @@ elif page == "Prédiction":
 
             pred = float(model.predict(X_input)[0])
 
-            st.markdown("### ✅ Résultat")
+            st.markdown("### Résultat :")
             st.markdown(
                 f"<div class='big-result'>{format_delay_minutes(pred)}</div>",
                 unsafe_allow_html=True
@@ -451,11 +607,8 @@ elif page == "Prédiction":
 
             delay_for_risk = max(0.0, pred)
             st.write("Niveau de risque :", risk_label(delay_for_risk))
-
-            with st.expander("Voir les features envoyées au modèle"):
-                st.dataframe(X_input, use_container_width=True)
-
             st.caption("⚠️ La fiabilité dépend des lignes/arrêts et des périodes réellement observées en collecte.")
+
 
 elif page == "Data Viz":
     st.markdown("## 📊 Data Visualization")
@@ -506,6 +659,7 @@ elif page == "Data Viz":
     st.info(f"Source utilisée : **{src}** — {len(df):,} lignes".replace(",", " "))
     df = enrich_with_gtfs(df)
 
+    # --------- Normalisation delay_minutes ----------
     if "delay_minutes" not in df.columns:
         possible = [c for c in df.columns if "delay" in c.lower()]
         if possible:
@@ -514,18 +668,19 @@ elif page == "Data Viz":
             st.error("Colonne delay_minutes introuvable.")
             st.stop()
 
-    if "day_of_week" not in df.columns:
-        df["day_of_week"] = 0
-    if "hour" not in df.columns:
-        if "collecte_datetime" in df.columns:
-            dt = pd.to_datetime(df["collecte_datetime"], errors="coerce")
-            df["hour"] = dt.dt.hour.fillna(0).astype(int)
-        else:
-            df["hour"] = 0
-
     df["delay_minutes"] = pd.to_numeric(df["delay_minutes"], errors="coerce")
     df = df.dropna(subset=["delay_minutes"])
     df = df[df["delay_minutes"].between(-10, 60)]
+
+    # ✅✅✅ FIX IMPORTANT : heure + jour FIABLES depuis collecte_datetime
+    if "collecte_datetime" in df.columns:
+        df["collecte_datetime"] = pd.to_datetime(df["collecte_datetime"], errors="coerce")
+        df["hour"] = df["collecte_datetime"].dt.hour.fillna(0).astype(int)
+        df["dow_calc"] = df["collecte_datetime"].dt.dayofweek.fillna(0).astype(int)  # 0=Lun ... 6=Dim
+    else:
+        if "hour" not in df.columns:
+            df["hour"] = 0
+        df["dow_calc"] = 0
 
     # 2) Filtres EN HAUT ✅ + aucun filtre par défaut ✅
     st.markdown("### Filtres")
@@ -541,7 +696,7 @@ elif page == "Data Viz":
     with fcol2:
         top_stops = df["stop_name"].astype(str).value_counts().head(200).index.tolist()
         stop_sel = st.multiselect(
-            "Arrêts (Top 200)",
+            "Arrêts",
             options=top_stops,
             default=[]
         )
@@ -549,8 +704,16 @@ elif page == "Data Viz":
     with fcol3:
         hour_range = st.slider("Heure", 0, 23, value=(0, 23))
 
+    DAY_MAP = {0:"Lundi", 1:"Mardi", 2:"Mercredi", 3:"Jeudi", 4:"Vendredi", 5:"Samedi", 6:"Dimanche"}
+    DAY_REV = {v:k for k,v in DAY_MAP.items()}
+
     with fcol4:
-        dow_sel = st.multiselect("Jours (0=Lun … 6=Dim)", options=list(range(7)), default=[])
+        dow_names = st.multiselect(
+            "Jours",
+            options=[DAY_MAP[i] for i in range(7)],
+            default=[]
+        )
+        dow_sel = [DAY_REV[name] for name in dow_names]  # 0..6
 
     # 3) Application des filtres (si vide => pas de filtre) ✅
     dff = df.copy()
@@ -561,26 +724,117 @@ elif page == "Data Viz":
     if hour_range != (0, 23):
         dff = dff[dff["hour"].between(hour_range[0], hour_range[1])]
     if dow_sel:
-        dff = dff[dff["day_of_week"].isin(dow_sel)]
+        # ✅ FIX : filtre sur dow_calc (fiable), PAS sur day_of_week
+        dff = dff[dff["dow_calc"].isin(dow_sel)]
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📄 Données", "⏱️ Tendances", "🚌 Lignes", "🚏 Arrêts", "🧭 Couverture des données"])
 
+
+### PAGE DONNÉES
     with tab1:
         st.markdown("### 📄 Données filtrées")
-        colA, colB, colC = st.columns(3)
+        if dff.empty:
+            st.warning(
+                "⚠️ Aucune donnée ne correspond à ces filtres.\n\n"
+                "Essaie de changer le jour, l’heure ou de retirer un filtre."
+            )
+            st.stop()
+        colA, colB, colC, colD, colE = st.columns((5))
         with colA: st.metric("Observations", f"{len(dff):,}".replace(",", " "))
         mean_delay = float(dff["delay_minutes"].mean()) if len(dff) else 0.0
         median_delay = float(dff["delay_minutes"].median()) if len(dff) else 0.0
+        pct_ontime = (dff["delay_minutes"].abs() <= 0.5).mean() * 100 if len(dff) else 0.0
         with colB: st.metric("Retard moyen", format_delay_stat(mean_delay))
         with colC: st.metric("Retard médian", format_delay_stat(median_delay))
+        max_delay = float(dff["delay_minutes"].max()) if len(dff) else 0.0
+        with colD: st.metric("Retard max", format_delay_stat(max_delay))
+        with colE: st.metric("À l’heure (±30s)", f"{pct_ontime:.1f}%")
 
-        st.dataframe(dff.head(300), use_container_width=True)
 
+
+        st.markdown("### 🔥 Les plus gros retards observés")
+        cols_public = [c for c in ["collecte_datetime","route_short_name","stop_name","hour","delay_minutes"] if c in dff.columns]
+        top_cases = (
+            dff[cols_public]
+            .sort_values("delay_minutes", ascending=False)
+            .head(30)
+            .reset_index(drop=True)
+        )
+        st.dataframe(top_cases, use_container_width=True)
+
+
+
+        st.markdown("📊 Quantiles du retard (en minutes/secondes)")
+        quantiles = dff["delay_minutes"].quantile([0.05, 0.25, 0.5, 0.75, 0.95])
+        q_df = pd.DataFrame(
+            [quantiles.values],
+            columns=["5%", "25%", "50% (médiane)", "75%", "95%"],
+            index=["delay_minutes"]
+        )
+
+        def format_delay(x):
+            if pd.isna(x):
+                return "—"
+            x = float(x)
+            if abs(x) < 1:
+                return f"{int(round(x * 60))} s"
+            return f"{x:.2f} min"
+
+        q_df = q_df.applymap(format_delay)
+        st.dataframe(q_df, use_container_width=True)
+        st.info(
+            "📊 La majorité des passages présentent de faibles retards (médiane ≈ 1 min). "
+            "Cependant, 75% des passages présentent un retard inférieur à ~3–4 minutes "
+            "(retard habituel). Les valeurs au-delà du 95e percentile correspondent à des "
+            "situations exceptionnelles ou à des incidents majeurs."
+        )
+
+        with st.expander("🔍 Voir les données brutes"):
+            st.dataframe(dff.head(300), use_container_width=True)
+
+
+### PAGE TENDANCE 
     with tab2:
         st.markdown("### ⏱️ Tendances temporelles")
-        by_hour = dff.groupby("hour", as_index=False)["delay_minutes"].mean().sort_values("hour")
-        st.line_chart(by_hour.set_index("hour"))
+        hourly = (
+            dff.assign(on_time=(dff["delay_minutes"].abs() <= 0.5))
+            .groupby("hour", as_index=False)
+            .agg(
+                median_delay=("delay_minutes", "median"),
+                pct_ontime=("on_time", "mean"),
+                n=("delay_minutes", "size"),
+            )
+            .sort_values("hour")
+        )
 
+        if hourly.empty:
+            st.warning("Pas assez de données avec ces filtres.")
+            st.stop()
+
+        # KPIs simples
+        h_crit = int(hourly.loc[hourly["median_delay"].idxmax(), "hour"])
+        med_max = float(hourly["median_delay"].max())
+        st.metric("Heure la plus critique", f"{h_crit}h — médiane {format_delay_stat(med_max)}")
+
+    
+        # Petit tableau lisible
+        st.markdown("")
+        show = hourly.copy()
+        show["pct_ontime"] = (show["pct_ontime"] * 100).round(1)
+        show["median_delay"] = show["median_delay"].round(2)
+        show = show.rename(columns={
+            "hour": "heure",
+            "median_delay": "médiane retard (min)",
+            "pct_ontime": "% à l'heure (±30s)",
+            "n": "observations",
+        })
+        st.dataframe(show, use_container_width=True)
+
+        st.caption(
+            "La médiane met en évidence un retard typique plus élevé en fin d’après-midi, "
+        )
+
+### Page Ligne
     with tab3:
         st.markdown("### 🚌 Analyse par ligne")
         by_route = (
@@ -591,13 +845,11 @@ elif page == "Data Viz":
         st.dataframe(by_route.head(25), use_container_width=True)
 
         st.markdown("### 📊 Top lignes par retard moyen")
-
         topN = st.slider("Choisir le nombre de lignes les plus en retard à afficher", 5, 50, 15, key="top_routes")
         top_routes = by_route.head(topN).set_index("route_short_name")
-
         st.bar_chart(top_routes["mean_delay"])
 
-
+### PAGE ARRET
     with tab4:
         st.markdown("### 🚏 Analyse par arrêt")
         by_stop = (
@@ -609,19 +861,19 @@ elif page == "Data Viz":
 
         st.markdown("### 🚏 Retard moyen observé aux arrêts")
         st.caption(
-        "Ce graphique ne représente pas un retard de l’arrêt lui-même, "
-        "mais le retard moyen des véhicules lorsqu’ils passent par cet arrêt."
+            "Ce graphique ne représente pas un retard de l’arrêt lui-même, "
+            "mais le retard moyen des véhicules lorsqu’ils passent par cet arrêt."
         )
 
         topN2 = st.slider(
-        "Choisir le nombre d’arrêts avec le plus fort retard moyen des véhicules à afficher",
-        5, 50, 15,
-        key="top_stops"
-         )
+            "Choisir le nombre d’arrêts avec le plus fort retard moyen des véhicules à afficher",
+            5, 50, 15,
+            key="top_stops"
+        )
         top_stops_df = by_stop.head(topN2).set_index("stop_name")
-
         st.bar_chart(top_stops_df["mean_delay"])
 
+### PAGE COUVERTURE 
     with tab5:
         st.markdown("### 🧭 Couverture des données")
         st.caption(
@@ -630,42 +882,45 @@ elif page == "Data Viz":
         )
 
         if "collecte_datetime" in df.columns:
-            # Conversion datetime
             df["collecte_datetime"] = pd.to_datetime(df["collecte_datetime"], errors="coerce")
-
-            # Jour de collecte
             df["collecte_date"] = df["collecte_datetime"].dt.date
+
             jours_collecte = (
                 df["collecte_date"]
                 .value_counts()
                 .sort_index()
             )
 
-            # KPI globaux
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 st.metric("📅 Nombre de jours collectés", jours_collecte.shape[0])
             with col2:
                 st.metric("📊 Total d'observations", f"{jours_collecte.sum():,}".replace(",", " "))
-            with col3:
-                st.metric(
-                    "📈 Moyenne / jour",
-                    f"{jours_collecte.mean():.0f} obs"
+
+
+            st.markdown("#### 📋 Détail des collectes par jour")
+            detail_jours = (
+                    jours_collecte
+                    .rename("Nombre d'observations")
+                    .reset_index()
+                    .rename(columns={"index": "collecte_date"})
                 )
 
-            st.markdown("#### 📊 Répartition des observations par jour")
-            st.bar_chart(jours_collecte)
+                # Ajouter le jour de la semaine
+            detail_jours["Jour"] = pd.to_datetime(
+                    detail_jours["collecte_date"]
+                ).dt.day_name(locale="fr_FR")
 
-            with st.expander("📋 Voir le détail par jour"):
-                st.dataframe(
-                    jours_collecte.rename("Nombre d'observations"),
-                    use_container_width=True
-                )
+                # Réordonner les colonnes
+            detail_jours = detail_jours[
+                    ["collecte_date", "Jour", "Nombre d'observations"]
+                ]
+            st.dataframe(detail_jours, use_container_width=True)
+
 
             st.caption(
                 "⚠️ Les analyses et prédictions reflètent uniquement les jours et périodes "
-                "présents dans la collecte. Une faible couverture temporelle peut influencer "
-                "la généralisation des résultats."
+                "présents dans la collecte."
             )
 
         else:
@@ -674,11 +929,7 @@ elif page == "Data Viz":
                 "La couverture temporelle ne peut pas être évaluée."
             )
 
-
-
 elif page == "À propos":
-    from datetime import date
-
     st.markdown("## ℹ️ À propos de FilBleu Predictor")
 
     st.markdown("""
@@ -703,7 +954,7 @@ L’application s’appuie sur deux familles de données :
 - mises à jour d’horaires et informations de circulation au format Protocol Buffers
 
 📌 Les retards ne sont pas toujours fournis sous une forme directement exploitable.  
-➡️ Ils sont **reconstruits** en comparant les horaires théoriques aux timestamps temps réel, en tenant compte du fuseau **Europe/Paris**.
+➡️ Ils sont **reconstruits** en comparant l'**heure prévue** (horaires théoriques) avec l'**heure réelle** (moment d'arrivée ou de passage), en tenant compte du fuseau horaire Europe/Paris.
 """)
 
     st.markdown("""
@@ -730,21 +981,23 @@ L’application propose ensuite :
 """)
 
     st.markdown("""
-### ⚠️ Ce qu’il faut garder en tête
+### ⚠️ Ce qu'il faut garder en tête
 
 Les résultats reflètent **uniquement les périodes où des données ont été collectées**.  
 Selon les jours, les horaires et les lignes couvertes, la représentativité peut varier.
 
-Les retards peuvent aussi dépendre d’éléments externes non présents dans les données :
+**Limitation importante :** La collecte GTFS-RT a capturé 10 jours (12 déc 2025 - 7 jan 2026), dont 4 jours pendant les vacances scolaires (25 déc, 31 déc, 1er jan, 7 jan). Cependant, le GTFS statique public ne contenait pas les grilles horaires exceptionnelles de ces jours. Par conséquent, **seuls 7 jours de service régulier** ont pu être exploités pour l'analyse et l'entraînement du modèle (687k observations).
+
+Les retards peuvent aussi dépendre d'éléments externes non présents dans les données :
 trafic, météo, incidents, affluence, travaux, événements…
 """)
 
     st.markdown("""
-### 💡 Pistes d’amélioration
+### ➕ Axes d'amélioration possibles
+
 
 - Collecte plus longue et plus régulière
-- Ajout de variables externes (météo, jours fériés, événements)
-- Amélioration de la prédiction en tenant compte du contexte temps réel (retard actuel, perturbations)
+- Ajout de variables externes (météo, vacances scolaires, etc.)
 - Suivi de la performance dans le temps
 """)
 

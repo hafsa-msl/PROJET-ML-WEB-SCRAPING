@@ -7,7 +7,7 @@ from google.transit import gtfs_realtime_pb2
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 def parse_trip_updates_file(filepath):
     """
     Parse un fichier trip_updates .bin et retourne un DataFrame

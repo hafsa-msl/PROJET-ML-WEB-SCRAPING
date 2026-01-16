@@ -7,6 +7,8 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 
+BASE_DIR = Path(__file__).resolve().parent.parent.parent # Pour être sur dêtre a la Racine du projet
+
 def load_gtfs_static():
     """
     Charge les horaires théoriques depuis GTFS statique
