@@ -1,27 +1,25 @@
-"""
-train_model.py 
-- Baseline (moyenne)
-- LinearRegression
-- RandomForestRegressor
-- GradientBoostingRegressor (+ GridSearchCV léger)
-"""
-
-
+from __future__ import annotations
 import json
-import numpy as np
 import pandas as pd
-from __future__ import annotations # pour les annotations de type
-from pathlib import Path # Chemins
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score # Métriques
+import numpy as np
+import joblib
+from pathlib import Path
+import time
+
+from sklearn.model_selection import KFold, GridSearchCV
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.model_selection import GridSearchCV
-import joblib # Sauvegarde modèle
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-# CHEMINS qu'on a pris dans prepare_dataset.py
-PROJECT_ROOT = Path(".")
-FINAL_DIR = PROJECT_ROOT / "data" / "final"
+
+current_script_path = Path(__file__).resolve()
+PROJECT_ROOT = current_script_path.parent.parent.parent
+
+DATA_DIR = PROJECT_ROOT / "data"
+FINAL_DIR = DATA_DIR / "final"
 MODELS_DIR = PROJECT_ROOT / "models"
+
+
 TRAIN_PATH = FINAL_DIR / "train.csv"
 TEST_PATH = FINAL_DIR / "test.csv"
 
@@ -30,15 +28,14 @@ def log(title: str) -> None:
     print(title)
     print("=" * 60)
 
-# Chargement des données
-def load_data():
-    if not TRAIN_PATH.exists() or not TEST_PATH.exists():
-        raise FileNotFoundError("train.csv ou test.csv introuvable. Lance prepare_dataset.py avant.")
-    return pd.read_csv(TRAIN_PATH), pd.read_csv(TEST_PATH)
 
-# Sélection de tous les features et de la variable cible
-def select_features(df: pd.DataFrame):
+def prepare_data(df: pd.DataFrame):
+    """
+    Sépare les variables (X) de la cible (y).
+    Utilise la liste d'exclusion de ta binôme + One-Hot Encoding.
+    """
     target = "delay_minutes"
+    
     drop_cols = [
         target,
         "trip_id", "stop_id", "stop_name", "route_id",
@@ -48,109 +45,174 @@ def select_features(df: pd.DataFrame):
         "arrival_delay_seconds", "departure_delay_seconds",
         "arrival_delay_minutes", "departure_delay_minutes",
         "arrival_time_seconds", "departure_time_seconds",
-    ]
-    cols_to_drop = [c for c in drop_cols if c in df.columns]
-    X = df.drop(columns=cols_to_drop) # ici on garde tout sauf les colonnes à dropper cad features + target cad delay_minutes (target c'est ce qu'on veut prédire)
-    y = df[target].astype(float) # ici on s'assure que y est float cad numérique
-    X = X.apply(pd.to_numeric, errors="coerce").fillna(0).astype("float32") # Force en numérique (one-hot / bool / object)
 
+    ]
+    
+    actual_drop = [c for c in drop_cols if c in df.columns]
+    X = df.drop(columns=actual_drop)
+    y = df[target]
+
+   
+    if "route_short_name" in X.columns:
+        X = pd.get_dummies(X, columns=["route_short_name"], prefix="ligne")
+    
+    X = X.apply(pd.to_numeric, errors="coerce").fillna(0).astype("float32")
+    
     return X, y, X.columns.tolist()
 
-# Calcul et affichage des métriques et de la variable à prédire 
-def evaluate(y_true, y_pred, name: str) -> dict:
-    mae = mean_absolute_error(y_true, y_pred) # Mean Absolute Error = moyenne des erreurs absolues
-    rmse = mean_squared_error(y_true, y_pred) ** 0.5 # Root Mean Squared Error = racine carrée de la moyenne des erreurs au carré
-    r2 = r2_score(y_true, y_pred)
-    print(f"{name:>18s} | MAE: {mae:.3f} | RMSE: {rmse:.3f} | R²: {r2:.3f}")
-    return {"model": name, "mae": mae, "rmse": rmse, "r2": r2}
-
+def evaluer_modele(model, X_test, y_test, name):
+    """
+    Évaluation FINALE sur les données de test.
+    """
+    start_time = time.time()
+    y_pred = model.predict(X_test)
+    inference_time = time.time() - start_time
+    
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2 = r2_score(y_test, y_pred)
+    
+    return {
+        "model": name, 
+        "mae": round(mae, 3), 
+        "rmse": round(rmse, 3), 
+        "r2": round(r2, 3),
+        "time_sec": round(inference_time, 4)
+    }
 
 def main():
-    MODELS_DIR.mkdir(parents=True, exist_ok=True) # Crée le dossier models s'il n'existe pas
-    log("Chargement train/test")
-    train_df, test_df = load_data()
-    print(f"Train: {len(train_df):,} | Test: {len(test_df):,}")
-    log("Features / variable cible")
-    X_train, y_train, feat_cols = select_features(train_df)
-    X_test, y_test, _ = select_features(test_df)
-    print(f"Nb features: {X_train.shape[1]}")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    log("🚀 DÉMARRAGE DU MACHINE LEARNING ")
+
+    if not TRAIN_PATH.exists() or not TEST_PATH.exists():
+        raise FileNotFoundError("❌ Erreur : Fichiers manquants. Lance 'prepare_dataset.py' d'abord.")
+
+    print("Chargement des fichiers séparés...")
+    df_train = pd.read_csv(TRAIN_PATH)
+    df_test = pd.read_csv(TEST_PATH)
+    
+    print(f"✅ TRAIN : {len(df_train):,} lignes (Pour apprendre et régler les paramètres)")
+    print(f"🔒 TEST  : {len(df_test):,} lignes (Verrouillé jusqu'à la fin)")
+
+    X_train, y_train, feat_cols = prepare_data(df_train)
+    X_test, y_test, _ = prepare_data(df_test)
+    
+    X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
+
+    cv_strategy = KFold(n_splits=3, shuffle=True, random_state=42)
+    
     results = []
-    best_model = None
-    best_name = None
-    best_mae = float("inf")
-    best_params = None
-# Baseline
-    log("Baseline - Modèle Naif")
-    baseline_pred = np.full(shape=len(y_test), fill_value=y_train.mean())
-    r = evaluate(y_test, baseline_pred, "baseline_moyenne")
-    results.append(r)
-# Régression Linéaire
-    log("Régression Linéaire")
-    lr = LinearRegression(n_jobs=-1)
-    lr.fit(X_train, y_train)
-    pred = lr.predict(X_test)
-    r = evaluate(y_test, pred, "régression_linéaire")
-    results.append(r)
-    if r["mae"] < best_mae:
-        best_mae, best_model, best_name, best_params = r["mae"], lr, "régression_linéaire", {}
-# Forêt Aléatoire
-    log("Forêt Aléatoire")
-    rf = RandomForestRegressor(
-        n_estimators=300,
-        random_state=42,
-        n_jobs=-1,
-        min_samples_leaf=2,)
-    rf.fit(X_train, y_train)
-    pred = rf.predict(X_test)
-    r = evaluate(y_test, pred, "forêt_aléatoire")
-    results.append(r)
-    if r["mae"] < best_mae:
-        best_mae, best_model, best_name, best_params = r["mae"], rf, "forêt_aléatoire", {}
+    best_global_mae = float("inf")
+    best_global_model = None
+    best_global_name = ""
+    best_global_params = {}
 
-# Gradient Boosting + GridSearch léger (gridsearch pour trouver les meilleurs hyperparamètres)
-    log("Gradient Boosting ( + GridSearch)") 
-    gbr = GradientBoostingRegressor(random_state=42)
-    param_grid = {
-        "n_estimators": [200, 400],
-        "learning_rate": [0.05, 0.1], # taux d'apprentissage
-        "max_depth": [2, 3],}
-    grid = GridSearchCV( #ici les meilleurs hyperparamètres sont cherchés via GridSearchCV
-        estimator=gbr,
-        param_grid=param_grid,
-        scoring="neg_mean_absolute_error",
-        cv=3,
-        n_jobs=-1,
-        verbose=1,)
-    grid.fit(X_train, y_train)
-    best_gbr = grid.best_estimator_
-    pred = best_gbr.predict(X_test)
-    r = evaluate(y_test, pred, "gradient_boosting")
-    results.append(r)
-    # Meilleur modèle ou non 
-    if r["mae"] < best_mae:
-        best_mae = r["mae"]
-        best_model = best_gbr
-        best_name = "gradient_boosting"
-        best_params = grid.best_params_
+ # --- 1. Baseline ---
+    log("1. Baseline (Moyenne)")
+    mean_delay = y_train.mean()
+    y_pred_base = np.full(len(y_test), mean_delay) 
 
-# Sauvegardes
-    log("💾 Sauvegardes")
-    metrics_df = pd.DataFrame(results).sort_values("mae")
-    metrics_path = MODELS_DIR / "metrics.csv"
-    metrics_df.to_csv(metrics_path, index=False)
-    print(f"✅ Metrics : {metrics_path}")
-# Sauvegarde du meilleur modèle
-    best_path = MODELS_DIR / "best_model.joblib"
-    joblib.dump({"model": best_model, "features": feat_cols, "name": best_name}, best_path)
-    print(f"✅ Best model : {best_path} ({best_name})")
-# Sauvegarde des meilleurs hyperparamètres
-    params_path = MODELS_DIR / "best_params.json"
-    with open(params_path, "w", encoding="utf-8") as f:
-        json.dump(best_params or {}, f, ensure_ascii=False, indent=2)
-    print(f"✅ Best params : {params_path}")
-# Résumé
-    log("Résumé")
-    print(metrics_df.to_string(index=False))
+    mae_base = mean_absolute_error(y_test, y_pred_base)
+    rmse_base = np.sqrt(mean_squared_error(y_test, y_pred_base))
+
+
+    print(f"   MAE: {mae_base:.2f} min | RMSE: {rmse_base:.2f} min")
+    
+    results.append({
+        "model": "Baseline", 
+        "mae": mae_base, 
+        "rmse": rmse_base 
+    })
+
+    # --- 2. RÉGRESSION LINÉAIRE ---
+    log("2. Régression Linéaire")
+    lr = LinearRegression()
+    lr.fit(X_train, y_train) 
+    
+    scores = evaluer_modele(lr, X_test, y_test, "LinearRegression")
+    print(f"👉 MAE: {scores['mae']} min ")
+    results.append(scores)
+    
+    if scores['mae'] < best_global_mae:
+        best_global_mae = scores['mae']
+        best_global_model = lr
+        best_global_name = "LinearRegression"
+
+    # --- 3. RANDOM FOREST (Avec Tuning sur TRAIN) ---
+    log("3. Random Forest (GridSearch)")
+    rf = RandomForestRegressor(random_state=42, n_jobs=-1)
+    
+    param_grid_rf = {
+        "n_estimators": [50, 100],  
+        "max_depth": [10, 20]       
+    }
+    
+    print("⏳ Recherche des meilleurs paramètres")
+    
+    grid_rf = GridSearchCV(rf, param_grid_rf, cv=cv_strategy, scoring="neg_mean_absolute_error", n_jobs=-1)
+    grid_rf.fit(X_train, y_train)
+    
+    best_rf = grid_rf.best_estimator_
+    print(f"✅ Meilleurs paramètres trouvés : {grid_rf.best_params_}")
+    
+    scores = evaluer_modele(best_rf, X_test, y_test, "RandomForest")
+    print(f"👉 MAE: {scores['mae']} min")
+    results.append(scores)
+
+    if scores['mae'] < best_global_mae:
+        best_global_mae = scores['mae']
+        best_global_model = best_rf
+        best_global_name = "RandomForest"
+        best_global_params = grid_rf.best_params_
+
+    # --- 4. GRADIENT BOOSTING ---
+    log("4. Gradient Boosting (GridSearch)")
+    gb = GradientBoostingRegressor(random_state=42)
+    
+    param_grid_gb = {
+        "n_estimators": [100],
+        "learning_rate": [0.1],
+        "max_depth": [3, 5]
+    }
+    
+    grid_gb = GridSearchCV(gb, param_grid_gb, cv=cv_strategy, scoring="neg_mean_absolute_error", n_jobs=-1)
+    grid_gb.fit(X_train, y_train)
+    best_gb = grid_gb.best_estimator_
+    
+    scores = evaluer_modele(best_gb, X_test, y_test, "GradientBoosting")
+    print(f"👉 MAE: {scores['mae']} min")
+    results.append(scores)
+
+    if scores['mae'] < best_global_mae:
+        best_global_mae = scores['mae']
+        best_global_model = best_gb
+        best_global_name = "GradientBoosting"
+        best_global_params = grid_gb.best_params_
+
+    
+    log("🏁 RÉSULTATS COMPARATIFS")
+    df_results = pd.DataFrame(results).sort_values("mae")
+    print(df_results[["model", "mae", "rmse"]].to_string(index=False))
+    
+    print(f"\n🏆 Le meilleur modèle est : {best_global_name.upper()}")
+    print(f"   Il se trompe en moyenne de {best_global_mae} minutes.")
+
+  
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    df_results.to_csv(MODELS_DIR / "metrics.csv", index=False)
+
+    joblib.dump({
+        "model": best_global_model,
+        "features": feat_cols,
+        "name": best_global_name,
+        "params": best_global_params
+    }, MODELS_DIR / "best_model.joblib")
+    
+    
+    with open(MODELS_DIR / "best_params.json", "w") as f:
+        json.dump(best_global_params, f)
+
+    print(f"\n💾 Modèle sauvegardé dans : models/best_model.joblib")
 
 if __name__ == "__main__":
     main()
