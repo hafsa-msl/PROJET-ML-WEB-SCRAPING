@@ -15,7 +15,7 @@ L’objectif est double :
 - Mettre en place une **collecte automatisée de données temps réel** via API
 - Transformer des données brutes GTFS / GTFS-RT en un **dataset exploitable**
 - Analyser les retards (tendances temporelles, lignes, arrêts)
--Mettre en place **un modèle prédictif** pour estimer les retards en minutes
+- Mettre en place **un modèle prédictif** pour estimer les retards en minutes
 - Déployer une **application Streamlit** pour l'utilisateur
 
 ---
