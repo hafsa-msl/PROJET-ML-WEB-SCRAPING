@@ -1,7 +1,3 @@
-"""
-Script d'exploration des données GTFS de Fil Bleu
-"""
-
 import pandas as pd
 from pathlib import Path
 
@@ -21,7 +17,7 @@ def explore_gtfs():
         filepath = gtfs_dir / f"{fichier}.txt" #ici on construit le chemin du fichier
         if filepath.exists():
             print(f"\n{'='*60}")
-            print(f"📊 {description.upper()} ({fichier}.txt)") #ici on affiche le nom du fichier et sa description
+            print(f"{description.upper()} ({fichier}.txt)") #ici on affiche le nom du fichier et sa description
             print('='*60)
             df = pd.read_csv(filepath)
             print(f"\nNombre de lignes : {len(df)}")
@@ -33,7 +29,7 @@ def explore_gtfs():
     
     print(f"\n\n{'='*60}")
     print("RÉSUMÉ DU RÉSEAU FIL BLEU")
-    print('='*60)
+    print('='*60) #ligne de séparation
     
     stops = pd.read_csv(gtfs_dir / "stops.txt")
     routes = pd.read_csv(gtfs_dir / "routes.txt")

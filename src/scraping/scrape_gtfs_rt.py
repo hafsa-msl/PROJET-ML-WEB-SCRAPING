@@ -144,8 +144,5 @@ if __name__ == "__main__":
     print("\n\n" + "="*60)
     print(" Tests terminés !")
     print("="*60)
-    print("\nPour lancer une collecte continue :")
-    print("  Décommente la ligne 'collecte_continue()' en bas du fichier")
-    print("  Ou lance : collecte_continue(duree_minutes=10, intervalle_secondes=60)")
-    
+   
 collecte_continue(duree_minutes=503, intervalle_secondes=180)

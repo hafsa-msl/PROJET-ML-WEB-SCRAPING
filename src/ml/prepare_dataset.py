@@ -46,7 +46,11 @@ def chargement_donnees(path: Path) -> pd.DataFrame:
 
     df["delay_minutes"] = pd.to_numeric(df["delay_minutes"], errors="coerce")
     
+<<<<<<< Updated upstream
     print(f"✅ Chargé : {len(df):,} lignes.")
+=======
+    print(f"Chargé : {len(df):,} lignes.")
+>>>>>>> Stashed changes
     return df
 
 def nettoyage_outliers(df: pd.DataFrame) -> pd.DataFrame:
@@ -135,11 +139,19 @@ def split_et_sauvegarde(df: pd.DataFrame) -> None:
     train_df.to_csv(train_path, index=False)
     test_df.to_csv(test_path, index=False)
     
+<<<<<<< Updated upstream
     print(f"✂️  DIVISION EFFECTUÉE (80% / 20%)")
     print(f"   📂 Train set : {len(train_df):,} lignes")
     print(f"   📂 Test set  : {len(test_df):,} lignes")
     print("\n   ℹ️  Note : Split Stratifié sur l'heure (hour).")
     print("       La distribution des heures de pointe est identique dans Train et Test.")
+=======
+    print(f" DIVISION EFFECTUÉE (80% / 20%)")
+    print(f" Train set : {len(train_df):,} lignes")
+    print(f" Test set  : {len(test_df):,} lignes")
+    print("\n  Note : Split Stratifié sur l'heure (hour).")
+    print("La distribution des heures de pointe est identique dans Train et Test.")
+>>>>>>> Stashed changes
 
 
 def main():

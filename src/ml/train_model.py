@@ -82,10 +82,17 @@ def evaluer_modele(model, X_test, y_test, name):
 
 def main():
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
+<<<<<<< Updated upstream
     log("🚀 DÉMARRAGE DU MACHINE LEARNING ")
 
     if not TRAIN_PATH.exists() or not TEST_PATH.exists():
         raise FileNotFoundError("❌ Erreur : Fichiers manquants. Lance 'prepare_dataset.py' d'abord.")
+=======
+    log("DÉMARRAGE DU MACHINE LEARNING ")
+
+    if not TRAIN_PATH.exists() or not TEST_PATH.exists():
+        raise FileNotFoundError("Erreur : Fichiers manquants. Lance 'prepare_dataset.py' d'abord.")
+>>>>>>> Stashed changes
 
     print("Chargement des fichiers séparés...")
     df_train = pd.read_csv(TRAIN_PATH)
@@ -156,7 +163,11 @@ def main():
     print(f"✅ Meilleurs paramètres trouvés : {grid_rf.best_params_}")
     
     scores = evaluer_modele(best_rf, X_test, y_test, "RandomForest")
+<<<<<<< Updated upstream
     print(f"👉 MAE: {scores['mae']} min")
+=======
+    print(f"MAE: {scores['mae']} min")
+>>>>>>> Stashed changes
     results.append(scores)
 
     if scores['mae'] < best_global_mae:
@@ -180,7 +191,11 @@ def main():
     best_gb = grid_gb.best_estimator_
     
     scores = evaluer_modele(best_gb, X_test, y_test, "GradientBoosting")
+<<<<<<< Updated upstream
     print(f"👉 MAE: {scores['mae']} min")
+=======
+    print(f" MAE: {scores['mae']} min")
+>>>>>>> Stashed changes
     results.append(scores)
 
     if scores['mae'] < best_global_mae:
@@ -190,11 +205,19 @@ def main():
         best_global_params = grid_gb.best_params_
 
     
+<<<<<<< Updated upstream
     log("🏁 RÉSULTATS COMPARATIFS")
     df_results = pd.DataFrame(results).sort_values("mae")
     print(df_results[["model", "mae", "rmse"]].to_string(index=False))
     
     print(f"\n🏆 Le meilleur modèle est : {best_global_name.upper()}")
+=======
+    log(" RÉSULTATS COMPARATIFS")
+    df_results = pd.DataFrame(results).sort_values("mae")
+    print(df_results[["model", "mae", "rmse"]].to_string(index=False))
+    
+    print(f"\n Le meilleur modèle est : {best_global_name.upper()}")
+>>>>>>> Stashed changes
     print(f"   Il se trompe en moyenne de {best_global_mae} minutes.")
 
   
@@ -212,7 +235,11 @@ def main():
     with open(MODELS_DIR / "best_params.json", "w") as f:
         json.dump(best_global_params, f)
 
+<<<<<<< Updated upstream
     print(f"\n💾 Modèle sauvegardé dans : models/best_model.joblib")
+=======
+    print(f"\n Modèle sauvegardé dans : models/best_model.joblib")
+>>>>>>> Stashed changes
 
 if __name__ == "__main__":
     main()

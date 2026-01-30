@@ -76,7 +76,7 @@ def parse_all_trip_updates():
     all_data = []
     
     for i, filepath in enumerate(files, 1):
-        print(f"📊 Parsing {i}/{len(files)}: {filepath.name}")
+        print(f"Parsing {i}/{len(files)}: {filepath.name}")
         
         try:
             df = parse_trip_updates_file(filepath)
@@ -101,7 +101,7 @@ def parse_all_trip_updates():
     combined_df = pd.concat(all_data, ignore_index=True)
     
     print(f"\n✅ Parsing terminé !")
-    print(f"📊 Total de passages collectés : {len(combined_df)}")
+    print(f" Total de passages collectés : {len(combined_df)}")
     
     return combined_df
 
@@ -115,10 +115,8 @@ def save_parsed_data(df):
     output_file = output_dir / "gtfs_rt_parsed.csv"
     df.to_csv(output_file, index=False)
     
-    print(f"💾 Données sauvegardées : {output_file}")
-    
-    # Afficher quelques statistiques
-    print(f"\n📈 STATISTIQUES :")
+    print(f"Données sauvegardées : {output_file}")
+    print(f"\n STATISTIQUES :")
     print(f"Nombre de passages : {len(df)}")
     
     # Compter combien de retards on a vraiment
@@ -135,14 +133,14 @@ def save_parsed_data(df):
     return output_file
 
 if __name__ == "__main__":
-    print("🚀 Début du parsing des fichiers GTFS-RT\n")
+    print(" Début du parsing des fichiers GTFS-RT\n")
     
     # Parser tous les fichiers
     df = parse_all_trip_updates()
     
     if df is not None:
         save_parsed_data(df)
-        print("\n👀 Aperçu des données :")
+        print("\n Aperçu des données :")
         print(df.head(10))
     else:
         print("\n❌ Échec du parsing")
